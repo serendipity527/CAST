@@ -216,8 +216,20 @@ class WaveletPatchEmbedding(nn.Module):
             nn.Sigmoid()
         )
 
+        # 初始化 Gate 权重：偏向低频（防止高频过拟合）
+        # bias=2.0 -> Sigmoid(2.0) ≈ 0.88
+        # 初始融合 = 88% 低频 (Trend) + 12% 高频 (Detail)
+        for m in self.gate.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.constant_(m.weight, 0)
+                nn.init.constant_(m.bias, 2.0)
+
         # Dropout
         self.dropout = nn.Dropout(dropout)
+        
+        # 【优化1】高频通道专用 Dropout：防止对噪声过拟合
+        # 比常规 dropout 更强 (0.5)，强迫模型学习高频的统计分布而非具体噪声
+        self.detail_dropout = nn.Dropout(0.5)
 
     def haar_dwt_1d(self, x):
         """
@@ -264,6 +276,9 @@ class WaveletPatchEmbedding(nn.Module):
         # 这里 C = patch_len//2，L = num_patches
         e_approx = self.approx_embedding(approx)  # (B*N, num_patches, d_model)
         e_detail = self.detail_embedding(detail)  # (B*N, num_patches, d_model)
+        
+        # 【优化1】对高频分量施加强 Dropout，抑制噪声过拟合
+        e_detail = self.detail_dropout(e_detail)
 
         # Step 4: 门控融合
         # 拼接低频和高频 embedding
