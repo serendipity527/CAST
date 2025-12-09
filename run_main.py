@@ -80,6 +80,9 @@ parser.add_argument('--prompt_domain', type=int, default=0, help='')
 parser.add_argument('--llm_model', type=str, default='LLAMA', help='LLM model') # LLAMA, GPT2, BERT
 parser.add_argument('--llm_dim', type=int, default='4096', help='LLM model dimension')# LLama7b:4096; GPT2-small:768; BERT-base:768
 
+# Wavelet Patch Embedding (创新模块)
+parser.add_argument('--use_wavelet', type=int, default=0, help='是否启用小波多分辨率Patch Embedding: 0=关闭(原版), 1=开启(小波版)')
+
 
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')

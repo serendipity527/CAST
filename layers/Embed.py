@@ -185,6 +185,97 @@ class PatchEmbedding(nn.Module):
         return self.dropout(x), n_vars
 
 
+class WaveletPatchEmbedding(nn.Module):
+    """
+    多分辨率 Patch Embedding：基于 Haar 小波分解
+    将每个 Patch 分解为低频（趋势）和高频（细节）分量，
+    分别投影后通过门控机制融合，保留显式的频域信息。
+    """
+
+    def __init__(self, d_model, patch_len, stride, dropout):
+        super(WaveletPatchEmbedding, self).__init__()
+        # Patching 参数
+        self.patch_len = patch_len
+        self.stride = stride
+        self.d_model = d_model
+        self.padding_patch_layer = ReplicationPad1d((0, stride))
+
+        # 确保 patch_len 是偶数（Haar 小波要求）
+        assert patch_len % 2 == 0, f"patch_len must be even for Haar DWT, got {patch_len}"
+
+        # 小波分解后的长度
+        self.half_len = patch_len // 2
+
+        # 双通道独立投影：低频和高频各自有专属的 Embedding 层
+        self.approx_embedding = TokenEmbedding(self.half_len, d_model)  # 低频/趋势
+        self.detail_embedding = TokenEmbedding(self.half_len, d_model)  # 高频/细节
+
+        # 门控融合机制：学习如何动态加权低频和高频特征
+        self.gate = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.Sigmoid()
+        )
+
+        # Dropout
+        self.dropout = nn.Dropout(dropout)
+
+    def haar_dwt_1d(self, x):
+        """
+        对最后一个维度执行单级 Haar 离散小波变换 (DWT)
+        
+        Args:
+            x: 输入张量，形状 (B, num_patches, patch_len)
+        
+        Returns:
+            approx: 近似分量（低频/趋势），形状 (B, num_patches, patch_len//2)
+            detail: 细节分量（高频/波动），形状 (B, num_patches, patch_len//2)
+        """
+        # Haar 小波：相邻点求平均 → 低频近似
+        approx = (x[..., 0::2] + x[..., 1::2]) / math.sqrt(2)
+        # Haar 小波：相邻点求差 → 高频细节
+        detail = (x[..., 0::2] - x[..., 1::2]) / math.sqrt(2)
+        return approx, detail
+
+    def forward(self, x):
+        """
+        Args:
+            x: 输入张量，形状 (B, N, T)，其中 N 是变量数，T 是序列长度
+        
+        Returns:
+            output: 融合后的 Patch Embedding，形状 (B*N, num_patches, d_model)
+            n_vars: 变量数 N
+        """
+        # 记录变量数
+        n_vars = x.shape[1]
+
+        # Step 1: Padding 并切分为 Patches
+        x = self.padding_patch_layer(x)
+        # unfold: (B, N, num_patches, patch_len)
+        x = x.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+        # reshape: (B*N, num_patches, patch_len)
+        x = torch.reshape(x, (x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
+
+        # Step 2: Haar 小波分解
+        # approx, detail: 各为 (B*N, num_patches, patch_len//2)
+        approx, detail = self.haar_dwt_1d(x)
+
+        # Step 3: 双通道独立投影
+        # TokenEmbedding 输入 (B, L, C)，输出 (B, L, d_model)
+        # 这里 C = patch_len//2，L = num_patches
+        e_approx = self.approx_embedding(approx)  # (B*N, num_patches, d_model)
+        e_detail = self.detail_embedding(detail)  # (B*N, num_patches, d_model)
+
+        # Step 4: 门控融合
+        # 拼接低频和高频 embedding
+        combined = torch.cat([e_approx, e_detail], dim=-1)  # (B*N, num_patches, d_model*2)
+        # 计算门控权重 (0~1)，决定低频和高频的混合比例
+        gate_weight = self.gate(combined)  # (B*N, num_patches, d_model)
+        # 加权融合：gate * 低频 + (1-gate) * 高频
+        output = gate_weight * e_approx + (1 - gate_weight) * e_detail
+
+        return self.dropout(output), n_vars
+
+
 class DataEmbedding_wo_time(nn.Module):
     def __init__(self, c_in, d_model, embed_type='fixed', freq='h', dropout=0.1):
         super(DataEmbedding_wo_time, self).__init__()

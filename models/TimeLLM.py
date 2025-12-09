@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from transformers import LlamaConfig, LlamaModel, LlamaTokenizer, GPT2Config, GPT2Model, GPT2Tokenizer, BertConfig, \
     BertModel, BertTokenizer
-from layers.Embed import PatchEmbedding
+from layers.Embed import PatchEmbedding, WaveletPatchEmbedding
 import transformers
 from layers.StandardNorm import Normalize
 
@@ -170,8 +170,18 @@ class Model(nn.Module):
 
         self.dropout = nn.Dropout(configs.dropout)
 
-        self.patch_embedding = PatchEmbedding(
-            configs.d_model, self.patch_len, self.stride, configs.dropout)
+        # 根据配置选择 Patch Embedding 类型
+        self.use_wavelet = getattr(configs, 'use_wavelet', 0)
+        if self.use_wavelet:
+            # 小波多分辨率 Patch Embedding（方案一创新点）
+            self.patch_embedding = WaveletPatchEmbedding(
+                configs.d_model, self.patch_len, self.stride, configs.dropout)
+            print("[TimeLLM] 使用 WaveletPatchEmbedding (小波多分辨率)")
+        else:
+            # 原版 Patch Embedding
+            self.patch_embedding = PatchEmbedding(
+                configs.d_model, self.patch_len, self.stride, configs.dropout)
+            print("[TimeLLM] 使用 PatchEmbedding (原版)")
 
         self.word_embeddings = self.llm_model.get_input_embeddings().weight
         self.vocab_size = self.word_embeddings.shape[0]
