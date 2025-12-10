@@ -185,6 +185,25 @@ class PatchEmbedding(nn.Module):
         return self.dropout(x), n_vars
 
 
+class SoftThreshold(nn.Module):
+    """
+    可学习软阈值去噪模块
+    公式: y = sign(x) * ReLU(|x| - tau)
+    当 |x| < tau 时，输出为 0（视为噪声）
+    当 |x| >= tau 时，输出为 sign(x) * (|x| - tau)（保留但收缩）
+    """
+    def __init__(self, num_features, init_tau=0.1):
+        super(SoftThreshold, self).__init__()
+        # 可学习的阈值参数，每个特征维度一个
+        self.tau = nn.Parameter(torch.ones(num_features) * init_tau)
+    
+    def forward(self, x):
+        # x: (..., num_features)
+        # tau 需要 broadcast 到 x 的形状
+        tau = torch.abs(self.tau)  # 确保阈值为正
+        return torch.sign(x) * torch.relu(torch.abs(x) - tau)
+
+
 class WaveletPatchEmbedding(nn.Module):
     """
     多分辨率 Patch Embedding：基于 Haar 小波分解
@@ -192,7 +211,7 @@ class WaveletPatchEmbedding(nn.Module):
     分别投影后通过门控机制融合，保留显式的频域信息。
     """
 
-    def __init__(self, d_model, patch_len, stride, dropout):
+    def __init__(self, d_model, patch_len, stride, dropout, use_soft_threshold=False):
         super(WaveletPatchEmbedding, self).__init__()
         # Patching 参数
         self.patch_len = patch_len
@@ -230,6 +249,36 @@ class WaveletPatchEmbedding(nn.Module):
         # 【优化1】高频通道专用 Dropout：防止对噪声过拟合
         # 比常规 dropout 更强 (0.5)，强迫模型学习高频的统计分布而非具体噪声
         self.detail_dropout = nn.Dropout(0.5)
+        
+        # 【优化2】可学习软阈值去噪：智能过滤高频噪声
+        self.use_soft_threshold = use_soft_threshold
+        if use_soft_threshold:
+            # 对小波域的高频分量应用软阈值
+            # init_tau=0.1 是初始阈值，模型会自动学习最佳值
+            self.soft_threshold = SoftThreshold(num_features=self.half_len, init_tau=0.1)
+
+        # 打印配置日志
+        self._print_config()
+
+    def _print_config(self):
+        """打印当前模块的配置信息"""
+        print("=" * 60)
+        print("[WaveletPatchEmbedding] 小波多分辨率 Patch Embedding 已启用")
+        print("=" * 60)
+        print(f"  ├─ Patch 长度: {self.patch_len}")
+        print(f"  ├─ Stride: {self.stride}")
+        print(f"  ├─ 输出维度: {self.d_model}")
+        print(f"  ├─ 小波分解: Haar DWT (单级)")
+        print(f"  ├─ 低频分量长度: {self.half_len}")
+        print(f"  ├─ 高频分量长度: {self.half_len}")
+        print(f"  ├─ 门控初始化: 偏向低频 (Trend ~88%, Detail ~12%)")
+        print(f"  ├─ 高频 Dropout: p=0.5 (防过拟合)")
+        if self.use_soft_threshold:
+            print(f"  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)")
+        else:
+            print(f"  ├─ 软阈值去噪: ❌ 关闭")
+        print(f"  └─ 输出 Dropout: p={self.dropout.p}")
+        print("=" * 60)
 
     def haar_dwt_1d(self, x):
         """
@@ -270,6 +319,10 @@ class WaveletPatchEmbedding(nn.Module):
         # Step 2: Haar 小波分解
         # approx, detail: 各为 (B*N, num_patches, patch_len//2)
         approx, detail = self.haar_dwt_1d(x)
+        
+        # 【优化2】对高频分量应用可学习软阈值去噪
+        if self.use_soft_threshold:
+            detail = self.soft_threshold(detail)
 
         # Step 3: 双通道独立投影
         # TokenEmbedding 输入 (B, L, C)，输出 (B, L, d_model)

@@ -172,10 +172,12 @@ class Model(nn.Module):
 
         # 根据配置选择 Patch Embedding 类型
         self.use_wavelet = getattr(configs, 'use_wavelet', 0)
+        self.use_soft_threshold = getattr(configs, 'use_soft_threshold', 0)
         if self.use_wavelet:
             # 小波多分辨率 Patch Embedding（方案一创新点）
             self.patch_embedding = WaveletPatchEmbedding(
-                configs.d_model, self.patch_len, self.stride, configs.dropout)
+                configs.d_model, self.patch_len, self.stride, configs.dropout,
+                use_soft_threshold=bool(self.use_soft_threshold))
             print("[TimeLLM] 使用 WaveletPatchEmbedding (小波多分辨率)")
         else:
             # 原版 Patch Embedding
