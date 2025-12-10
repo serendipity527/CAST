@@ -133,8 +133,6 @@ class CausalSWT(nn.Module):
     Args:
         wavelet: 小波基函数名称 (默认'db4')
         level: 分解层数 (默认3)
-        normalize: 是否归一化滤波器系数 (默认True)
-                   归一化可防止深层分解时数值爆炸，每层缩放 1/√2
     
     Input:
         x: (B, N, T) - [batch_size, num_variables, time_steps]
@@ -144,12 +142,11 @@ class CausalSWT(nn.Module):
                 顺序: [cA_n, cD_n, cD_{n-1}, ..., cD_1]
     """
     
-    def __init__(self, wavelet: str = 'db4', level: int = 3, normalize: bool = True):
+    def __init__(self, wavelet: str = 'db4', level: int = 3):
         super(CausalSWT, self).__init__()
         
         self.wavelet_name = wavelet
         self.level = level
-        self.normalize = normalize
         
         # 获取滤波器系数
         filters = get_wavelet_filters(wavelet)
@@ -159,12 +156,6 @@ class CausalSWT(nn.Module):
         # 注意：Conv1d执行的是互相关，需要反转滤波器
         dec_lo = torch.tensor(filters['dec_lo'][::-1], dtype=torch.float32)
         dec_hi = torch.tensor(filters['dec_hi'][::-1], dtype=torch.float32)
-        
-        # 归一化：防止SWT（无下采样）导致的数值爆炸
-        if normalize:
-            scale = 1.0 / (2.0 ** 0.5)
-            dec_lo = dec_lo * scale
-            dec_hi = dec_hi * scale
         
         # 注册为buffer（不参与梯度更新，但随模型移动到GPU）
         self.register_buffer('dec_lo', dec_lo.view(1, 1, -1))
@@ -177,7 +168,6 @@ class CausalSWT(nn.Module):
         print(f"  - 小波类型: {wavelet}")
         print(f"  - 滤波器长度: {self.filter_len}")
         print(f"  - 分解层数: {level}")
-        print(f"  - 归一化: {normalize}")
         print(f"  - 输出频段数: {level + 1}")
         print("  - 特性: 严格因果（仅使用过去数据）")
     
@@ -284,7 +274,6 @@ class CausalISWT(nn.Module):
     Args:
         wavelet: 小波基函数名称（必须与分解时一致）
         level: 分解层数（必须与分解时一致）
-        normalize: 是否归一化滤波器系数（必须与分解时一致）
     
     Input:
         coeffs: (B, N, T, Level+1) - 小波系数
@@ -294,12 +283,11 @@ class CausalISWT(nn.Module):
         x: (B, N, T) - 重构的时域信号
     """
     
-    def __init__(self, wavelet: str = 'db4', level: int = 3, normalize: bool = True):
+    def __init__(self, wavelet: str = 'db4', level: int = 3):
         super(CausalISWT, self).__init__()
         
         self.wavelet_name = wavelet
         self.level = level
-        self.normalize = normalize
         
         # 获取重构滤波器系数
         filters = get_wavelet_filters(wavelet)
@@ -309,19 +297,12 @@ class CausalISWT(nn.Module):
         rec_lo = torch.tensor(filters['rec_lo'][::-1], dtype=torch.float32)
         rec_hi = torch.tensor(filters['rec_hi'][::-1], dtype=torch.float32)
         
-        # 归一化：与分解时保持一致
-        if normalize:
-            scale = 1.0 / (2.0 ** 0.5)
-            rec_lo = rec_lo * scale
-            rec_hi = rec_hi * scale
-        
         self.register_buffer('rec_lo', rec_lo.view(1, 1, -1))
         self.register_buffer('rec_hi', rec_hi.view(1, 1, -1))
         
         print("[CausalISWT] 创建逆因果平稳小波变换")
         print(f"  - 小波类型: {wavelet}")
         print(f"  - 分解层数: {level}")
-        print(f"  - 归一化: {normalize}")
         print("  - 特性: 反因果重构（补偿相位偏移）")
     
     def _anticausal_conv(self, x: torch.Tensor, weight: torch.Tensor, 

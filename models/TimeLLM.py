@@ -5,7 +5,7 @@ import torch.nn as nn
 
 from transformers import LlamaConfig, LlamaModel, LlamaTokenizer, GPT2Config, GPT2Model, GPT2Tokenizer, BertConfig, \
     BertModel, BertTokenizer
-from layers.Embed import PatchEmbedding, WaveletPatchEmbedding
+from layers.Embed import PatchEmbedding, WaveletPatchEmbedding, WISTPatchEmbedding
 import transformers
 from layers.StandardNorm import Normalize
 
@@ -171,14 +171,31 @@ class Model(nn.Module):
         self.dropout = nn.Dropout(configs.dropout)
 
         # 根据配置选择 Patch Embedding 类型
-        self.use_wavelet = getattr(configs, 'use_wavelet', 0)
-        self.use_soft_threshold = getattr(configs, 'use_soft_threshold', 0)
-        if self.use_wavelet:
-            # 小波多分辨率 Patch Embedding（方案一创新点）
+        # wavelet_mode: 'none'=原版, 'haar'=Haar小波方案, 'wist'=新WIST-PE方案
+        self.wavelet_mode = getattr(configs, 'wavelet_mode', 'none')
+        self.use_haar_wavelet = getattr(configs, 'use_haar_wavelet', 0)
+        
+        # 优先使用 wavelet_mode 参数，兼容旧的 use_haar_wavelet 参数
+        if self.wavelet_mode == 'wist':
+            # 新 WIST-PE 方案：全局因果小波分解 + 双通道差异化 + 门控融合
+            self.patch_embedding = WISTPatchEmbedding(
+                d_model=configs.d_model,
+                patch_len=self.patch_len,
+                stride=self.stride,
+                dropout=configs.dropout,
+                wavelet_type=getattr(configs, 'wavelet_type', 'db4'),
+                wavelet_level=getattr(configs, 'wavelet_level', 1),
+                hf_dropout=getattr(configs, 'hf_dropout', 0.5),
+                gate_bias_init=getattr(configs, 'gate_bias_init', 2.0),
+                use_soft_threshold=bool(getattr(configs, 'use_soft_threshold', 1)),
+            )
+            print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
+        elif self.wavelet_mode == 'haar' or self.use_haar_wavelet:
+            # Haar 小波方案（Patch级别）
             self.patch_embedding = WaveletPatchEmbedding(
                 configs.d_model, self.patch_len, self.stride, configs.dropout,
-                use_soft_threshold=bool(self.use_soft_threshold))
-            print("[TimeLLM] 使用 WaveletPatchEmbedding (小波多分辨率)")
+                use_soft_threshold=True)
+            print("[TimeLLM] 使用 WaveletPatchEmbedding (Haar小波方案)")
         else:
             # 原版 Patch Embedding
             self.patch_embedding = PatchEmbedding(

@@ -80,8 +80,24 @@ parser.add_argument('--prompt_domain', type=int, default=0, help='')
 parser.add_argument('--llm_model', type=str, default='LLAMA', help='LLM model') # LLAMA, GPT2, BERT
 parser.add_argument('--llm_dim', type=int, default='4096', help='LLM model dimension')# LLama7b:4096; GPT2-small:768; BERT-base:768
 
-# Wavelet Patch Embedding (创新模块)
-parser.add_argument('--use_wavelet', type=int, default=0, help='是否启用小波多分辨率Patch Embedding: 0=关闭(原版), 1=开启(小波版)')
+# Wavelet Patch Embedding (创新模块: Haar小波分解 + 双通道投影 + 偏置初始化88%/12% + 高频Dropout + 软阈值去噪)
+parser.add_argument('--use_haar_wavelet', type=int, default=0, 
+                    help='是否启用完整Haar小波方案: 0=关闭(原版PatchEmbedding), 1=开启(完整方案)')
+
+# WIST-PE 配置参数 (新方案: 全局因果小波分解 + 双通道差异化处理 + 门控融合)
+parser.add_argument('--wavelet_mode', type=str, default='none', 
+                    choices=['none', 'haar', 'wist'],
+                    help='小波嵌入模式: none=原版, haar=现有Haar方案, wist=新WIST-PE方案(全局因果小波)')
+parser.add_argument('--wavelet_type', type=str, default='db4',
+                    help='小波基类型 (仅wist模式): db1/db2/db3/db4/db5/haar')
+parser.add_argument('--wavelet_level', type=int, default=1,
+                    help='小波分解层数 (仅wist模式): 1表示单级分解')
+parser.add_argument('--hf_dropout', type=float, default=0.5,
+                    help='高频通道Dropout率 (仅wist模式)')
+parser.add_argument('--gate_bias_init', type=float, default=2.0,
+                    help='门控融合初始偏置 (sigmoid(2.0)≈88%%关注低频)')
+parser.add_argument('--use_soft_threshold', type=int, default=1,
+                    help='是否启用可学习软阈值去噪: 0=关闭, 1=开启')
 
 
 # optimization

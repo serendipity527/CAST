@@ -355,3 +355,155 @@ class DataEmbedding_wo_time(nn.Module):
     def forward(self, x):
         x = self.value_embedding(x) + self.position_embedding(x)
         return self.dropout(x)
+
+
+class WISTPatchEmbedding(nn.Module):
+    """
+    WIST-PE: Wavelet-Informed Spatio-Temporal Patch Embedding
+    
+    核心创新点:
+    1. 全局因果小波分解 (Global Causal DWT): 在 Patching 之前先做全局 db4 分解
+    2. 双通道差异化处理: 低频直接投影，高频经过软阈值去噪+强Dropout
+    3. 门控融合 (Gated Fusion): 偏置初始化使模型初期关注低频趋势 (88%/12%)
+    4. 严格因果性: 使用 CausalSWT，仅左侧填充，防止未来信息泄露
+    
+    流程:
+    输入 (B, N, T) 
+        → 全局因果小波分解 → [低频 Trend, 高频 Detail]
+        → 分别切分 Patch
+        → 差异化投影 (低频直投, 高频去噪+投影+Dropout)
+        → 门控融合
+        → 输出 (B*N, num_patches, d_model)
+    """
+    
+    def __init__(self, d_model, patch_len, stride, dropout,
+                 wavelet_type='db4', wavelet_level=1,
+                 hf_dropout=0.5, gate_bias_init=2.0,
+                 use_soft_threshold=True):
+        super(WISTPatchEmbedding, self).__init__()
+        
+        # 基础参数
+        self.d_model = d_model
+        self.patch_len = patch_len
+        self.stride = stride
+        self.wavelet_type = wavelet_type
+        self.wavelet_level = wavelet_level
+        
+        # 导入因果小波变换模块
+        from layers.CausalWavelet import CausalSWT
+        self.swt = CausalSWT(wavelet=wavelet_type, level=wavelet_level)
+        
+        # Patching 层
+        self.padding_patch_layer = ReplicationPad1d((0, stride))
+        
+        # 双通道独立投影 (使用纯线性投影保证因果性，避免 Conv1d circular padding 导致的信息泄露)
+        # 低频通道: 直接线性投影
+        self.low_freq_embedding = nn.Linear(patch_len, d_model)
+        # 高频通道: 线性投影
+        self.high_freq_embedding = nn.Linear(patch_len, d_model)
+        
+        # 初始化线性层
+        nn.init.kaiming_normal_(self.low_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+        nn.init.kaiming_normal_(self.high_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+        
+        # 高频通道专用 Dropout (防止对噪声过拟合)
+        self.hf_dropout = nn.Dropout(hf_dropout)
+        
+        # 可学习软阈值去噪 (应用于高频分量)
+        self.use_soft_threshold = use_soft_threshold
+        if use_soft_threshold:
+            self.soft_threshold = SoftThreshold(num_features=patch_len, init_tau=0.1)
+        
+        # 门控融合机制
+        self.gate = nn.Sequential(
+            nn.Linear(d_model * 2, d_model),
+            nn.Sigmoid()
+        )
+        
+        # 初始化门控偏置: 偏向低频
+        # sigmoid(2.0) ≈ 0.88 → 初始融合 = 88% 低频 + 12% 高频
+        self.gate_bias_init = gate_bias_init
+        for m in self.gate.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.constant_(m.weight, 0)
+                nn.init.constant_(m.bias, gate_bias_init)
+        
+        # 输出 Dropout
+        self.dropout = nn.Dropout(dropout)
+        
+        # 打印配置信息
+        self._print_config()
+    
+    def _print_config(self):
+        """打印模块配置"""
+        print("=" * 70)
+        print("[WIST-PE] Wavelet-Informed Spatio-Temporal Patch Embedding 已启用")
+        print("=" * 70)
+        print(f"  ├─ 小波基类型: {self.wavelet_type}")
+        print(f"  ├─ 分解层数: {self.wavelet_level}")
+        print(f"  ├─ Patch 长度: {self.patch_len}")
+        print(f"  ├─ Stride: {self.stride}")
+        print(f"  ├─ 输出维度: {self.d_model}")
+        print(f"  ├─ 高频 Dropout: p={self.hf_dropout.p}")
+        print(f"  ├─ 门控初始化: bias={self.gate_bias_init:.1f} (低频≈{100*torch.sigmoid(torch.tensor(self.gate_bias_init)).item():.0f}%)")
+        if self.use_soft_threshold:
+            print(f"  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)")
+        else:
+            print(f"  ├─ 软阈值去噪: ❌ 关闭")
+        print(f"  └─ 特性: 全局因果小波分解 + 双通道差异化 + 门控融合")
+        print("=" * 70)
+    
+    def forward(self, x):
+        """
+        Args:
+            x: 输入张量，形状 (B, N, T)，其中 N 是变量数，T 是序列长度
+        
+        Returns:
+            output: 融合后的 Patch Embedding，形状 (B*N, num_patches, d_model)
+            n_vars: 变量数 N
+        """
+        B, N, T = x.shape
+        n_vars = N
+        
+        # ========== Step 1: 全局因果小波分解 ==========
+        # x: (B, N, T) -> swt 输出: (B, N, T, level+1)
+        # level=1 时输出 2 个频段: [cA_1 (低频), cD_1 (高频)]
+        coeffs = self.swt(x)
+        
+        # 提取低频和高频分量
+        low_freq = coeffs[:, :, :, 0]   # cA: (B, N, T) 低频/趋势
+        high_freq = coeffs[:, :, :, 1]  # cD: (B, N, T) 高频/细节
+        
+        # ========== Step 2: 分别切分 Patch ==========
+        # 对低频分量 Patching
+        low_freq = self.padding_patch_layer(low_freq)
+        low_patches = low_freq.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+        # (B, N, num_patches, patch_len) -> (B*N, num_patches, patch_len)
+        low_patches = low_patches.reshape(B * N, -1, self.patch_len)
+        
+        # 对高频分量 Patching
+        high_freq = self.padding_patch_layer(high_freq)
+        high_patches = high_freq.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+        high_patches = high_patches.reshape(B * N, -1, self.patch_len)
+        
+        # ========== Step 3: 差异化处理 ==========
+        # 低频路径: 直接投影
+        e_low = self.low_freq_embedding(low_patches)  # (B*N, num_patches, d_model)
+        
+        # 高频路径: 软阈值去噪 → 投影 → Dropout
+        if self.use_soft_threshold:
+            high_patches = self.soft_threshold(high_patches)
+        e_high = self.high_freq_embedding(high_patches)
+        e_high = self.hf_dropout(e_high)
+        
+        # ========== Step 4: 门控融合 ==========
+        # 拼接低频和高频 embedding
+        combined = torch.cat([e_low, e_high], dim=-1)  # (B*N, num_patches, d_model*2)
+        
+        # 计算门控权重 (0~1)
+        gate_weight = self.gate(combined)  # (B*N, num_patches, d_model)
+        
+        # 加权融合: gate * 低频 + (1-gate) * 高频
+        output = gate_weight * e_low + (1 - gate_weight) * e_high
+        
+        return self.dropout(output), n_vars
