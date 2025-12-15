@@ -98,6 +98,8 @@ parser.add_argument('--gate_bias_init', type=float, default=2.0,
                     help='门控融合初始偏置 (sigmoid(2.0)≈88%%关注低频)')
 parser.add_argument('--use_soft_threshold', type=int, default=1,
                     help='是否启用可学习软阈值去噪: 0=关闭, 1=开启')
+parser.add_argument('--use_causal_conv', type=int, default=1,
+                    help='是否使用因果卷积投影(恢复Patch间连通性): 0=Linear投影, 1=因果卷积投影')
 
 
 # optimization

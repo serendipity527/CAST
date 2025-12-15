@@ -40,7 +40,7 @@ def test_instantiation():
     
     from layers.Embed import WISTPatchEmbedding, PatchEmbedding, WaveletPatchEmbedding
     
-    # 测试 WISTPatchEmbedding 实例化
+    # 测试 WISTPatchEmbedding 实例化 (因果卷积模式)
     try:
         wist_pe = WISTPatchEmbedding(
             d_model=32,
@@ -51,11 +51,26 @@ def test_instantiation():
             wavelet_level=1,
             hf_dropout=0.5,
             gate_bias_init=2.0,
-            use_soft_threshold=True
+            use_soft_threshold=True,
+            use_causal_conv=True  # 启用因果卷积
         ).to(device)
-        print("\n✅ WISTPatchEmbedding 实例化成功")
+        print("\n✅ WISTPatchEmbedding (因果卷积模式) 实例化成功")
     except Exception as e:
-        print(f"\n❌ WISTPatchEmbedding 实例化失败: {e}")
+        print(f"\n❌ WISTPatchEmbedding (因果卷积模式) 实例化失败: {e}")
+        return False
+    
+    # 测试 Linear 模式
+    try:
+        wist_pe_linear = WISTPatchEmbedding(
+            d_model=32,
+            patch_len=16,
+            stride=8,
+            dropout=0.1,
+            use_causal_conv=False  # 禁用因果卷积
+        ).to(device)
+        print("✅ WISTPatchEmbedding (Linear模式) 实例化成功")
+    except Exception as e:
+        print(f"❌ WISTPatchEmbedding (Linear模式) 实例化失败: {e}")
         return False
     
     # 测试不同小波类型
@@ -63,7 +78,7 @@ def test_instantiation():
         try:
             _ = WISTPatchEmbedding(
                 d_model=32, patch_len=16, stride=8, dropout=0.1,
-                wavelet_type=wavelet
+                wavelet_type=wavelet, use_causal_conv=True
             ).to(device)
             print(f"  ✅ 小波类型 '{wavelet}' 支持")
         except Exception as e:
@@ -136,15 +151,16 @@ def test_forward_shape():
 def test_causality():
     """测试3: 因果性验证 - 修改未来数据不应影响过去的输出"""
     print("\n" + "=" * 70)
-    print("测试3: 因果性验证")
+    print("测试3: 因果性验证 (因果卷积模式)")
     print("=" * 70)
     
     from layers.Embed import WISTPatchEmbedding
     
-    # 创建模型 (eval模式关闭dropout)
+    # 创建模型 (eval模式关闭dropout) - 使用因果卷积
     wist_pe = WISTPatchEmbedding(
         d_model=32, patch_len=16, stride=8, dropout=0.0,
-        hf_dropout=0.0  # 关闭高频dropout以便精确测试
+        hf_dropout=0.0,  # 关闭高频dropout以便精确测试
+        use_causal_conv=True  # 启用因果卷积
     ).to(device)
     wist_pe.eval()
     
@@ -294,9 +310,19 @@ def test_gradient_flow():
     # 检查梯度
     print("\n检查各组件梯度:")
     
+    # 根据投影方式获取权重
+    if hasattr(wist_pe.low_freq_embedding, 'conv'):
+        # 因果卷积模式
+        low_weight_grad = wist_pe.low_freq_embedding.conv.weight.grad
+        high_weight_grad = wist_pe.high_freq_embedding.conv.weight.grad
+    else:
+        # Linear 模式
+        low_weight_grad = wist_pe.low_freq_embedding.weight.grad
+        high_weight_grad = wist_pe.high_freq_embedding.weight.grad
+    
     grad_checks = {
-        'low_freq_embedding': wist_pe.low_freq_embedding.weight.grad,
-        'high_freq_embedding': wist_pe.high_freq_embedding.weight.grad,
+        'low_freq_embedding': low_weight_grad,
+        'high_freq_embedding': high_weight_grad,
         'soft_threshold.tau': wist_pe.soft_threshold.tau.grad if hasattr(wist_pe, 'soft_threshold') else None,
     }
     

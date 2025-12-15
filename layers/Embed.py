@@ -357,6 +357,50 @@ class DataEmbedding_wo_time(nn.Module):
         return self.dropout(x)
 
 
+class CausalConv1d(nn.Module):
+    """
+    因果卷积层：只使用过去的信息，不看未来
+    通过左侧填充实现因果性，恢复 Patch 间的局部连通性
+    """
+    def __init__(self, in_channels, out_channels, kernel_size=3):
+        super(CausalConv1d, self).__init__()
+        self.kernel_size = kernel_size
+        self.padding = kernel_size - 1  # 左侧填充量
+        
+        # 标准 Conv1d，不使用内置 padding
+        self.conv = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=kernel_size,
+            padding=0,  # 我们手动做因果填充
+            bias=False
+        )
+        
+        # Kaiming 初始化
+        nn.init.kaiming_normal_(self.conv.weight, mode='fan_in', nonlinearity='leaky_relu')
+    
+    def forward(self, x):
+        """
+        Args:
+            x: (B, num_patches, patch_len) - Patch 序列
+        Returns:
+            out: (B, num_patches, out_channels)
+        """
+        # x: (B, L, C) -> (B, C, L) for Conv1d
+        x = x.transpose(1, 2)
+        
+        # 因果填充：只在左侧填充，不填充右侧
+        # 这样卷积核只能看到当前和过去的 Patch
+        x = F.pad(x, (self.padding, 0))  # (left_pad, right_pad)
+        
+        # 卷积
+        x = self.conv(x)
+        
+        # (B, C, L) -> (B, L, C)
+        x = x.transpose(1, 2)
+        return x
+
+
 class WISTPatchEmbedding(nn.Module):
     """
     WIST-PE: Wavelet-Informed Spatio-Temporal Patch Embedding
@@ -366,6 +410,7 @@ class WISTPatchEmbedding(nn.Module):
     2. 双通道差异化处理: 低频直接投影，高频经过软阈值去噪+强Dropout
     3. 门控融合 (Gated Fusion): 偏置初始化使模型初期关注低频趋势 (88%/12%)
     4. 严格因果性: 使用 CausalSWT，仅左侧填充，防止未来信息泄露
+    5. 因果卷积投影 (可选): 恢复 Patch 间的局部连通性，同时保持因果性
     
     流程:
     输入 (B, N, T) 
@@ -379,7 +424,7 @@ class WISTPatchEmbedding(nn.Module):
     def __init__(self, d_model, patch_len, stride, dropout,
                  wavelet_type='db4', wavelet_level=1,
                  hf_dropout=0.5, gate_bias_init=2.0,
-                 use_soft_threshold=True):
+                 use_soft_threshold=True, use_causal_conv=True):
         super(WISTPatchEmbedding, self).__init__()
         
         # 基础参数
@@ -388,6 +433,7 @@ class WISTPatchEmbedding(nn.Module):
         self.stride = stride
         self.wavelet_type = wavelet_type
         self.wavelet_level = wavelet_level
+        self.use_causal_conv = use_causal_conv
         
         # 导入因果小波变换模块
         from layers.CausalWavelet import CausalSWT
@@ -396,15 +442,19 @@ class WISTPatchEmbedding(nn.Module):
         # Patching 层
         self.padding_patch_layer = ReplicationPad1d((0, stride))
         
-        # 双通道独立投影 (使用纯线性投影保证因果性，避免 Conv1d circular padding 导致的信息泄露)
-        # 低频通道: 直接线性投影
-        self.low_freq_embedding = nn.Linear(patch_len, d_model)
-        # 高频通道: 线性投影
-        self.high_freq_embedding = nn.Linear(patch_len, d_model)
-        
-        # 初始化线性层
-        nn.init.kaiming_normal_(self.low_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
-        nn.init.kaiming_normal_(self.high_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+        # 双通道独立投影
+        if use_causal_conv:
+            # 因果卷积投影：恢复 Patch 间的局部连通性，同时保持因果性
+            # kernel_size=3 允许当前 Patch 聚合前两个 Patch 的信息
+            self.low_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
+            self.high_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
+        else:
+            # 纯线性投影：每个 Patch 独立处理
+            self.low_freq_embedding = nn.Linear(patch_len, d_model)
+            self.high_freq_embedding = nn.Linear(patch_len, d_model)
+            # 初始化线性层
+            nn.init.kaiming_normal_(self.low_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+            nn.init.kaiming_normal_(self.high_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
         
         # 高频通道专用 Dropout (防止对噪声过拟合)
         self.hf_dropout = nn.Dropout(hf_dropout)
@@ -444,6 +494,10 @@ class WISTPatchEmbedding(nn.Module):
         print(f"  ├─ Patch 长度: {self.patch_len}")
         print(f"  ├─ Stride: {self.stride}")
         print(f"  ├─ 输出维度: {self.d_model}")
+        if self.use_causal_conv:
+            print(f"  ├─ 投影方式: ✅ 因果卷积 (CausalConv1d, kernel=3)")
+        else:
+            print(f"  ├─ 投影方式: Linear (无 Patch 间交互)")
         print(f"  ├─ 高频 Dropout: p={self.hf_dropout.p}")
         print(f"  ├─ 门控初始化: bias={self.gate_bias_init:.1f} (低频≈{100*torch.sigmoid(torch.tensor(self.gate_bias_init)).item():.0f}%)")
         if self.use_soft_threshold:

@@ -188,6 +188,7 @@ class Model(nn.Module):
                 hf_dropout=getattr(configs, 'hf_dropout', 0.5),
                 gate_bias_init=getattr(configs, 'gate_bias_init', 2.0),
                 use_soft_threshold=bool(getattr(configs, 'use_soft_threshold', 1)),
+                use_causal_conv=bool(getattr(configs, 'use_causal_conv', 1)),
             )
             print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
         elif self.wavelet_mode == 'haar' or self.use_haar_wavelet:
