@@ -204,6 +204,96 @@ class SoftThreshold(nn.Module):
         return torch.sign(x) * torch.relu(torch.abs(x) - tau)
 
 
+class FrequencyChannelAttention(nn.Module):
+    """
+    频率通道注意力模块 (Frequency Channel Attention)
+    
+    借鉴 SE-Net (Squeeze-and-Excitation) 的思想，实现 Instance-wise 的频率权重分配。
+    
+    核心优势:
+    1. 动态路由 (Dynamic Routing): 每个样本根据自身特性动态分配频率权重
+       - 样本 A 可能是低频主导 → 自动加大低频权重
+       - 样本 B 可能是高频主导 → 自动加大高频权重
+    2. 自动特征选择: 如果某层分解出的全是噪声，Attention 权重自然趋近于 0
+    3. 替代硬编码的 gate_bias_init，实现真正的自适应
+    
+    流程:
+    输入: [e_band_0, e_band_1, ..., e_band_n]  各频段 embedding, 形状 (B*N, P, d_model)
+        → Stack: (B*N, P, d_model, num_bands)
+        → Squeeze: 全局平均池化 → (B*N, num_bands, d_model)
+        → Excitation: MLP → (B*N, num_bands, 1)
+        → Softmax: 归一化权重 → (B*N, num_bands, 1)
+        → Scale: 加权求和 → (B*N, P, d_model)
+    """
+    
+    def __init__(self, num_bands, d_model, reduction=4):
+        """
+        Args:
+            num_bands: 频段数量 (level + 1)
+            d_model: embedding 维度
+            reduction: MLP 中间层的降维比例
+        """
+        super(FrequencyChannelAttention, self).__init__()
+        
+        self.num_bands = num_bands
+        self.d_model = d_model
+        
+        # Excitation 网络: 轻量级 MLP
+        # 输入: (B*N, num_bands, d_model) -> 输出: (B*N, num_bands, 1)
+        hidden_dim = max(d_model // reduction, 8)  # 确保至少有 8 个隐藏单元
+        
+        self.excitation = nn.Sequential(
+            nn.Linear(d_model, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1)
+        )
+        
+        # 初始化: 让初始权重相对均匀，但略微偏向低频
+        # 最后一个 Linear 的 bias 设置为 [0.5, 0, 0, ...]
+        # 这样 softmax 后低频 (第 0 个) 会有略高的初始权重
+        with torch.no_grad():
+            # 获取最后一个 Linear 层
+            last_linear = self.excitation[-1]
+            nn.init.zeros_(last_linear.weight)
+            nn.init.zeros_(last_linear.bias)
+    
+    def forward(self, band_embeddings):
+        """
+        Args:
+            band_embeddings: list of tensors, 每个形状 (B*N, num_patches, d_model)
+                             顺序: [e_cA, e_cD_n, e_cD_{n-1}, ..., e_cD_1]
+        
+        Returns:
+            output: 加权融合后的 embedding, 形状 (B*N, num_patches, d_model)
+            attention_weights: 注意力权重, 形状 (B*N, num_bands), 用于可视化/调试
+        """
+        # Stack: list of (B*N, P, d_model) -> (B*N, P, d_model, num_bands)
+        stacked = torch.stack(band_embeddings, dim=-1)
+        B_N, P, D, num_bands = stacked.shape
+        
+        # Squeeze: 全局平均池化 (在 Patch 维度上)
+        # (B*N, P, d_model, num_bands) -> (B*N, d_model, num_bands) -> (B*N, num_bands, d_model)
+        squeezed = stacked.mean(dim=1).permute(0, 2, 1)  # (B*N, num_bands, d_model)
+        
+        # Excitation: MLP 计算每个频段的重要性分数
+        # (B*N, num_bands, d_model) -> (B*N, num_bands, 1)
+        scores = self.excitation(squeezed)  # (B*N, num_bands, 1)
+        
+        # Softmax: 归一化权重，确保总和为 1
+        attention_weights = F.softmax(scores, dim=1)  # (B*N, num_bands, 1)
+        
+        # Scale: 加权求和
+        # stacked: (B*N, P, d_model, num_bands)
+        # attention_weights: (B*N, num_bands, 1) -> (B*N, 1, 1, num_bands)
+        weights_expanded = attention_weights.permute(0, 2, 1).unsqueeze(1)  # (B*N, 1, 1, num_bands)
+        
+        # 加权求和: (B*N, P, d_model, num_bands) * (B*N, 1, 1, num_bands) -> sum -> (B*N, P, d_model)
+        output = (stacked * weights_expanded).sum(dim=-1)
+        
+        # 返回融合结果和注意力权重 (用于调试)
+        return output, attention_weights.squeeze(-1)  # (B*N, P, d_model), (B*N, num_bands)
+
+
 class WaveletPatchEmbedding(nn.Module):
     """
     多分辨率 Patch Embedding：基于 Haar 小波分解
@@ -411,20 +501,30 @@ class WISTPatchEmbedding(nn.Module):
     3. 门控融合 (Gated Fusion): 偏置初始化使模型初期关注低频趋势 (88%/12%)
     4. 严格因果性: 使用 CausalSWT，仅左侧填充，防止未来信息泄露
     5. 因果卷积投影 (可选): 恢复 Patch 间的局部连通性，同时保持因果性
+    6. 分层金字塔融合 (Pyramid Fusion): 支持多级小波分解，从高频到低频逐级融合
     
-    流程:
+    流程 (level=1, 双通道模式):
     输入 (B, N, T) 
         → 全局因果小波分解 → [低频 Trend, 高频 Detail]
         → 分别切分 Patch
         → 差异化投影 (低频直投, 高频去噪+投影+Dropout)
         → 门控融合
         → 输出 (B*N, num_patches, d_model)
+    
+    流程 (level>=2, 金字塔融合模式):
+    输入 (B, N, T)
+        → 全局因果小波分解 → [cA_n, cD_n, cD_{n-1}, ..., cD_1]
+        → 分别切分 Patch 并投影
+        → 分层金字塔融合: cD_1 + cD_2 → D_fused → D_fused + cA → 最终输出
+        → 输出 (B*N, num_patches, d_model)
     """
     
     def __init__(self, d_model, patch_len, stride, dropout,
                  wavelet_type='db4', wavelet_level=1,
                  hf_dropout=0.5, gate_bias_init=2.0,
-                 use_soft_threshold=True, use_causal_conv=True):
+                 use_soft_threshold=True, use_causal_conv=True,
+                 pyramid_fusion=True, mf_dropout=0.3,
+                 use_freq_attention=False):
         super(WISTPatchEmbedding, self).__init__()
         
         # 基础参数
@@ -434,6 +534,8 @@ class WISTPatchEmbedding(nn.Module):
         self.wavelet_type = wavelet_type
         self.wavelet_level = wavelet_level
         self.use_causal_conv = use_causal_conv
+        self.pyramid_fusion = pyramid_fusion and (wavelet_level >= 2)  # 只有 level>=2 才启用金字塔融合
+        self.use_freq_attention = use_freq_attention  # 是否使用频率通道注意力替代门控融合
         
         # 导入因果小波变换模块
         from layers.CausalWavelet import CausalSWT
@@ -442,41 +544,130 @@ class WISTPatchEmbedding(nn.Module):
         # Patching 层
         self.padding_patch_layer = ReplicationPad1d((0, stride))
         
-        # 双通道独立投影
-        if use_causal_conv:
-            # 因果卷积投影：恢复 Patch 间的局部连通性，同时保持因果性
-            # kernel_size=3 允许当前 Patch 聚合前两个 Patch 的信息
-            self.low_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
-            self.high_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
+        # ========== 频段投影层 ==========
+        # 频段数量: level + 1 (1个低频 cA + level个高频 cD)
+        self.num_bands = wavelet_level + 1
+        
+        if self.pyramid_fusion:
+            # 金字塔融合模式: 为每个频段创建独立的投影层
+            # band_embeddings[0] = cA (最低频/趋势)
+            # band_embeddings[1] = cD_n (最高层细节，相对较低频)
+            # band_embeddings[2] = cD_{n-1}
+            # ...
+            # band_embeddings[n] = cD_1 (最高频细节)
+            self.band_embeddings = nn.ModuleList()
+            for i in range(self.num_bands):
+                if use_causal_conv:
+                    self.band_embeddings.append(CausalConv1d(patch_len, d_model, kernel_size=3))
+                else:
+                    proj = nn.Linear(patch_len, d_model)
+                    nn.init.kaiming_normal_(proj.weight, mode='fan_in', nonlinearity='leaky_relu')
+                    self.band_embeddings.append(proj)
+            
+            # 每个高频频段的 Dropout (从 cD_n 到 cD_1，Dropout 逐渐增强)
+            # cD_n (中频): mf_dropout, cD_1 (最高频): hf_dropout
+            self.band_dropouts = nn.ModuleList()
+            self.band_dropouts.append(nn.Identity())  # cA 不做 Dropout
+            for i in range(1, self.num_bands):
+                # 线性插值: 从 mf_dropout 到 hf_dropout
+                if wavelet_level > 1:
+                    ratio = (i - 1) / (wavelet_level - 1)  # 0 到 1
+                    drop_rate = mf_dropout + ratio * (hf_dropout - mf_dropout)
+                else:
+                    drop_rate = hf_dropout
+                self.band_dropouts.append(nn.Dropout(drop_rate))
+            
+            # 每个高频频段的软阈值去噪 (可选)
+            self.use_soft_threshold = use_soft_threshold
+            if use_soft_threshold:
+                self.band_thresholds = nn.ModuleList()
+                self.band_thresholds.append(nn.Identity())  # cA 不做去噪
+                for i in range(1, self.num_bands):
+                    # 高频频段的初始阈值更大
+                    if wavelet_level > 1:
+                        ratio = (i - 1) / (wavelet_level - 1)
+                        init_tau = 0.05 + ratio * 0.1  # 从 0.05 到 0.15
+                    else:
+                        init_tau = 0.1
+                    self.band_thresholds.append(SoftThreshold(num_features=patch_len, init_tau=init_tau))
+            
+            # ========== 融合机制选择 ==========
+            if use_freq_attention:
+                # 使用频率通道注意力 (SE-Block 风格)
+                # 替代硬编码的门控融合，实现 Instance-wise 动态路由
+                self.freq_attention = FrequencyChannelAttention(
+                    num_bands=self.num_bands,
+                    d_model=d_model,
+                    reduction=4
+                )
+                self.gate_layers = None  # 不需要门控层
+            else:
+                # 金字塔融合门控: 从高频到低频逐级融合
+                # 需要 (num_bands - 1) 个门控层
+                # gate_layers[0]: cD_1 + cD_2 的融合 (如果 level >= 2)
+                # gate_layers[1]: (cD_1+cD_2) + cD_3 的融合 (如果 level >= 3)
+                # ...
+                # gate_layers[-1]: 所有细节 + cA 的最终融合
+                self.gate_layers = nn.ModuleList()
+                for i in range(self.num_bands - 1):
+                    gate = nn.Sequential(
+                        nn.Linear(d_model * 2, d_model),
+                        nn.Sigmoid()
+                    )
+                    # 初始化门控偏置
+                    # 最后一个门控 (融合 cA) 偏向低频
+                    # 其他门控 (融合细节) 相对平衡
+                    if i == self.num_bands - 2:  # 最后一个门控，融合 cA
+                        bias_init = gate_bias_init
+                    else:  # 细节之间的融合，相对平衡
+                        bias_init = 0.5  # sigmoid(0.5) ≈ 0.62
+                    for m in gate.modules():
+                        if isinstance(m, nn.Linear):
+                            nn.init.constant_(m.weight, 0)
+                            nn.init.constant_(m.bias, bias_init)
+                    self.gate_layers.append(gate)
+                self.freq_attention = None  # 不使用注意力
         else:
-            # 纯线性投影：每个 Patch 独立处理
-            self.low_freq_embedding = nn.Linear(patch_len, d_model)
-            self.high_freq_embedding = nn.Linear(patch_len, d_model)
-            # 初始化线性层
-            nn.init.kaiming_normal_(self.low_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
-            nn.init.kaiming_normal_(self.high_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+            # 原始双通道模式 (level=1 或禁用金字塔融合)
+            if use_causal_conv:
+                self.low_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
+                self.high_freq_embedding = CausalConv1d(patch_len, d_model, kernel_size=3)
+            else:
+                self.low_freq_embedding = nn.Linear(patch_len, d_model)
+                self.high_freq_embedding = nn.Linear(patch_len, d_model)
+                nn.init.kaiming_normal_(self.low_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+                nn.init.kaiming_normal_(self.high_freq_embedding.weight, mode='fan_in', nonlinearity='leaky_relu')
+            
+            self.hf_dropout = nn.Dropout(hf_dropout)
+            
+            self.use_soft_threshold = use_soft_threshold
+            if use_soft_threshold:
+                self.soft_threshold = SoftThreshold(num_features=patch_len, init_tau=0.1)
+            
+            # ========== 融合机制选择 ==========
+            if use_freq_attention:
+                # 使用频率通道注意力 (SE-Block 风格)
+                self.freq_attention = FrequencyChannelAttention(
+                    num_bands=2,  # 双通道: 低频 + 高频
+                    d_model=d_model,
+                    reduction=4
+                )
+                self.gate = None
+            else:
+                self.gate = nn.Sequential(
+                    nn.Linear(d_model * 2, d_model),
+                    nn.Sigmoid()
+                )
+                for m in self.gate.modules():
+                    if isinstance(m, nn.Linear):
+                        nn.init.constant_(m.weight, 0)
+                        nn.init.constant_(m.bias, gate_bias_init)
+                self.freq_attention = None
         
-        # 高频通道专用 Dropout (防止对噪声过拟合)
-        self.hf_dropout = nn.Dropout(hf_dropout)
-        
-        # 可学习软阈值去噪 (应用于高频分量)
-        self.use_soft_threshold = use_soft_threshold
-        if use_soft_threshold:
-            self.soft_threshold = SoftThreshold(num_features=patch_len, init_tau=0.1)
-        
-        # 门控融合机制
-        self.gate = nn.Sequential(
-            nn.Linear(d_model * 2, d_model),
-            nn.Sigmoid()
-        )
-        
-        # 初始化门控偏置: 偏向低频
-        # sigmoid(2.0) ≈ 0.88 → 初始融合 = 88% 低频 + 12% 高频
+        # 保存参数用于打印
         self.gate_bias_init = gate_bias_init
-        for m in self.gate.modules():
-            if isinstance(m, nn.Linear):
-                nn.init.constant_(m.weight, 0)
-                nn.init.constant_(m.bias, gate_bias_init)
+        self.hf_dropout_rate = hf_dropout
+        self.mf_dropout_rate = mf_dropout
         
         # 输出 Dropout
         self.dropout = nn.Dropout(dropout)
@@ -491,6 +682,7 @@ class WISTPatchEmbedding(nn.Module):
         print("=" * 70)
         print(f"  ├─ 小波基类型: {self.wavelet_type}")
         print(f"  ├─ 分解层数: {self.wavelet_level}")
+        print(f"  ├─ 频段数量: {self.num_bands} (1个低频 + {self.wavelet_level}个高频)")
         print(f"  ├─ Patch 长度: {self.patch_len}")
         print(f"  ├─ Stride: {self.stride}")
         print(f"  ├─ 输出维度: {self.d_model}")
@@ -498,13 +690,30 @@ class WISTPatchEmbedding(nn.Module):
             print(f"  ├─ 投影方式: ✅ 因果卷积 (CausalConv1d, kernel=3)")
         else:
             print(f"  ├─ 投影方式: Linear (无 Patch 间交互)")
-        print(f"  ├─ 高频 Dropout: p={self.hf_dropout.p}")
-        print(f"  ├─ 门控初始化: bias={self.gate_bias_init:.1f} (低频≈{100*torch.sigmoid(torch.tensor(self.gate_bias_init)).item():.0f}%)")
+        
+        if self.pyramid_fusion:
+            print(f"  ├─ 融合模式: ✅ 分层金字塔融合 (Pyramid Fusion)")
+            print(f"  │   ├─ 中频 Dropout: p={self.mf_dropout_rate}")
+            print(f"  │   ├─ 高频 Dropout: p={self.hf_dropout_rate}")
+            print(f"  │   └─ 融合顺序: cD_1 → cD_2 → ... → cD_n → cA")
+        else:
+            print(f"  ├─ 融合模式: 双通道融合 (Dual-Channel)")
+            print(f"  ├─ 高频 Dropout: p={self.hf_dropout_rate}")
+        
+        # 频率通道注意力 vs 门控融合
+        if self.use_freq_attention:
+            print(f"  ├─ 融合机制: ✅ 频率通道注意力 (SE-Block, Instance-wise 动态路由)")
+        else:
+            print(f"  ├─ 融合机制: 门控融合 (Gate Fusion)")
+            print(f"  ├─ 门控初始化: bias={self.gate_bias_init:.1f} (低频≈{100*torch.sigmoid(torch.tensor(self.gate_bias_init)).item():.0f}%)")
+        
         if self.use_soft_threshold:
             print(f"  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)")
         else:
             print(f"  ├─ 软阈值去噪: ❌ 关闭")
-        print(f"  └─ 特性: 全局因果小波分解 + 双通道差异化 + 门控融合")
+        
+        fusion_type = '注意力' if self.use_freq_attention else ('金字塔' if self.pyramid_fusion else '门控')
+        print(f"  └─ 特性: 全局因果小波分解 + 差异化处理 + {fusion_type}融合")
         print("=" * 70)
     
     def forward(self, x):
@@ -521,18 +730,25 @@ class WISTPatchEmbedding(nn.Module):
         
         # ========== Step 1: 全局因果小波分解 ==========
         # x: (B, N, T) -> swt 输出: (B, N, T, level+1)
-        # level=1 时输出 2 个频段: [cA_1 (低频), cD_1 (高频)]
+        # 输出顺序: [cA_n, cD_n, cD_{n-1}, ..., cD_1]
         coeffs = self.swt(x)
         
+        if self.pyramid_fusion:
+            # ========== 金字塔融合模式 ==========
+            return self._forward_pyramid(coeffs, B, N, n_vars)
+        else:
+            # ========== 原始双通道模式 ==========
+            return self._forward_dual_channel(coeffs, B, N, n_vars)
+    
+    def _forward_dual_channel(self, coeffs, B, N, n_vars):
+        """原始双通道融合模式 (level=1)"""
         # 提取低频和高频分量
         low_freq = coeffs[:, :, :, 0]   # cA: (B, N, T) 低频/趋势
         high_freq = coeffs[:, :, :, 1]  # cD: (B, N, T) 高频/细节
         
-        # ========== Step 2: 分别切分 Patch ==========
         # 对低频分量 Patching
         low_freq = self.padding_patch_layer(low_freq)
         low_patches = low_freq.unfold(dimension=-1, size=self.patch_len, step=self.stride)
-        # (B, N, num_patches, patch_len) -> (B*N, num_patches, patch_len)
         low_patches = low_patches.reshape(B * N, -1, self.patch_len)
         
         # 对高频分量 Patching
@@ -540,9 +756,8 @@ class WISTPatchEmbedding(nn.Module):
         high_patches = high_freq.unfold(dimension=-1, size=self.patch_len, step=self.stride)
         high_patches = high_patches.reshape(B * N, -1, self.patch_len)
         
-        # ========== Step 3: 差异化处理 ==========
         # 低频路径: 直接投影
-        e_low = self.low_freq_embedding(low_patches)  # (B*N, num_patches, d_model)
+        e_low = self.low_freq_embedding(low_patches)
         
         # 高频路径: 软阈值去噪 → 投影 → Dropout
         if self.use_soft_threshold:
@@ -550,14 +765,90 @@ class WISTPatchEmbedding(nn.Module):
         e_high = self.high_freq_embedding(high_patches)
         e_high = self.hf_dropout(e_high)
         
-        # ========== Step 4: 门控融合 ==========
-        # 拼接低频和高频 embedding
-        combined = torch.cat([e_low, e_high], dim=-1)  # (B*N, num_patches, d_model*2)
-        
-        # 计算门控权重 (0~1)
-        gate_weight = self.gate(combined)  # (B*N, num_patches, d_model)
-        
-        # 加权融合: gate * 低频 + (1-gate) * 高频
-        output = gate_weight * e_low + (1 - gate_weight) * e_high
+        # ========== 融合机制 ==========
+        if self.use_freq_attention:
+            # 使用频率通道注意力 (Instance-wise 动态路由)
+            output, _ = self.freq_attention([e_low, e_high])
+        else:
+            # 门控融合
+            combined = torch.cat([e_low, e_high], dim=-1)
+            gate_weight = self.gate(combined)
+            output = gate_weight * e_low + (1 - gate_weight) * e_high
         
         return self.dropout(output), n_vars
+    
+    def _forward_pyramid(self, coeffs, B, N, n_vars):
+        """
+        分层金字塔融合模式 (level >= 2)
+        
+        融合顺序 (以 level=2 为例):
+        coeffs 顺序: [cA_2, cD_2, cD_1]
+        
+        Step 1: 对每个频段进行 Patching 和投影
+        Step 2: 从最高频开始逐级融合
+            - e_D1 (最高频) + e_D2 (中频) → e_detail_fused
+            - e_detail_fused + e_A (低频) → e_final
+        
+        融合顺序 (以 level=3 为例):
+        coeffs 顺序: [cA_3, cD_3, cD_2, cD_1]
+        
+        Step 2:
+            - e_D1 + e_D2 → e_fused_12
+            - e_fused_12 + e_D3 → e_detail_fused
+            - e_detail_fused + e_A → e_final
+        """
+        # ========== Step 1: 对每个频段进行 Patching 和投影 ==========
+        band_embeddings = []
+        
+        for i in range(self.num_bands):
+            # 提取第 i 个频段
+            band = coeffs[:, :, :, i]  # (B, N, T)
+            
+            # Patching
+            band = self.padding_patch_layer(band)
+            patches = band.unfold(dimension=-1, size=self.patch_len, step=self.stride)
+            patches = patches.reshape(B * N, -1, self.patch_len)
+            
+            # 对高频频段应用软阈值去噪 (i > 0 表示高频)
+            if i > 0 and self.use_soft_threshold:
+                patches = self.band_thresholds[i](patches)
+            
+            # 投影
+            e_band = self.band_embeddings[i](patches)  # (B*N, num_patches, d_model)
+            
+            # 对高频频段应用 Dropout
+            e_band = self.band_dropouts[i](e_band)
+            
+            band_embeddings.append(e_band)
+        
+        # band_embeddings 顺序: [e_cA, e_cD_n, e_cD_{n-1}, ..., e_cD_1]
+        
+        # ========== Step 2: 融合机制 ==========
+        if self.use_freq_attention:
+            # 使用频率通道注意力 (Instance-wise 动态路由)
+            # 直接将所有频段传入注意力模块，让它自动学习权重
+            e_fused, _ = self.freq_attention(band_embeddings)
+        else:
+            # 原始门控融合: 从最高频 (cD_1) 开始，逐级向低频融合
+            # 最高频在 band_embeddings 的最后一个位置
+            
+            # 初始化: 从最高频开始
+            e_fused = band_embeddings[-1]  # e_cD_1 (最高频)
+            
+            # 逐级融合: cD_1 → cD_2 → ... → cD_n → cA
+            # 融合顺序: band_embeddings[-2], band_embeddings[-3], ..., band_embeddings[0]
+            for i in range(self.num_bands - 2, -1, -1):
+                e_next = band_embeddings[i]  # 下一个要融合的频段 (更低频)
+                
+                # 门控索引: 从 0 开始
+                gate_idx = (self.num_bands - 2) - i
+                
+                # 门控融合
+                combined = torch.cat([e_fused, e_next], dim=-1)
+                gate_weight = self.gate_layers[gate_idx](combined)
+                
+                # 融合: gate * 当前融合结果 + (1-gate) * 下一个频段
+                # 注意: 对于最后一个门控 (融合 cA)，gate 偏向低频，所以 (1-gate) 会更大
+                e_fused = gate_weight * e_fused + (1 - gate_weight) * e_next
+        
+        return self.dropout(e_fused), n_vars

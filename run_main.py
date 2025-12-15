@@ -100,6 +100,12 @@ parser.add_argument('--use_soft_threshold', type=int, default=1,
                     help='是否启用可学习软阈值去噪: 0=关闭, 1=开启')
 parser.add_argument('--use_causal_conv', type=int, default=1,
                     help='是否使用因果卷积投影(恢复Patch间连通性): 0=Linear投影, 1=因果卷积投影')
+parser.add_argument('--pyramid_fusion', type=int, default=1,
+                    help='是否启用分层金字塔融合(仅level>=2时生效): 0=双通道融合, 1=金字塔融合')
+parser.add_argument('--mf_dropout', type=float, default=0.3,
+                    help='中频通道Dropout率 (仅金字塔融合模式, 从mf_dropout线性插值到hf_dropout)')
+parser.add_argument('--use_freq_attention', type=int, default=0,
+                    help='是否使用频率通道注意力替代门控融合 (SE-Block风格, Instance-wise动态路由): 0=关闭(门控融合), 1=开启(注意力融合)')
 
 
 # optimization

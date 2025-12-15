@@ -178,6 +178,7 @@ class Model(nn.Module):
         # 优先使用 wavelet_mode 参数，兼容旧的 use_haar_wavelet 参数
         if self.wavelet_mode == 'wist':
             # 新 WIST-PE 方案：全局因果小波分解 + 双通道差异化 + 门控融合
+            # 支持多级分解时的分层金字塔融合
             self.patch_embedding = WISTPatchEmbedding(
                 d_model=configs.d_model,
                 patch_len=self.patch_len,
@@ -189,6 +190,9 @@ class Model(nn.Module):
                 gate_bias_init=getattr(configs, 'gate_bias_init', 2.0),
                 use_soft_threshold=bool(getattr(configs, 'use_soft_threshold', 1)),
                 use_causal_conv=bool(getattr(configs, 'use_causal_conv', 1)),
+                pyramid_fusion=bool(getattr(configs, 'pyramid_fusion', 1)),
+                mf_dropout=getattr(configs, 'mf_dropout', 0.3),
+                use_freq_attention=bool(getattr(configs, 'use_freq_attention', 0)),
             )
             print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
         elif self.wavelet_mode == 'haar' or self.use_haar_wavelet:
