@@ -6,6 +6,7 @@ import torch.nn as nn
 from transformers import LlamaConfig, LlamaModel, LlamaTokenizer, GPT2Config, GPT2Model, GPT2Tokenizer, BertConfig, \
     BertModel, BertTokenizer
 from layers.Embed import PatchEmbedding, WaveletPatchEmbedding, WISTPatchEmbedding
+from layers.FrequencyDecoupledHead import TriBandDecoupledHead, DeepSupervisionLoss
 import transformers
 from layers.StandardNorm import Normalize
 
@@ -193,6 +194,8 @@ class Model(nn.Module):
                 pyramid_fusion=bool(getattr(configs, 'pyramid_fusion', 1)),
                 mf_dropout=getattr(configs, 'mf_dropout', 0.3),
                 use_freq_attention=bool(getattr(configs, 'use_freq_attention', 0)),
+                freq_attention_version=int(getattr(configs, 'freq_attention_version', 1)),
+                freq_attn_kernel_size=int(getattr(configs, 'freq_attn_kernel_size', 3)),
             )
             print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
         elif self.wavelet_mode == 'haar' or self.use_haar_wavelet:
@@ -217,21 +220,54 @@ class Model(nn.Module):
         self.patch_nums = int((configs.seq_len - self.patch_len) / self.stride + 2)
         self.head_nf = self.d_ff * self.patch_nums
 
+        # 输出头选择：频率解耦头 vs 原始 FlattenHead
+        self.use_freq_decoupled_head = getattr(configs, 'use_freq_decoupled_head', 0)
+        
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            self.output_projection = FlattenHead(configs.enc_in, self.head_nf, self.pred_len,
-                                                 head_dropout=configs.dropout)
+            if self.use_freq_decoupled_head:
+                # 三频带解耦输出头 (Tri-Band Decoupled Head)
+                self.output_projection = TriBandDecoupledHead(
+                    n_vars=configs.enc_in,
+                    nf=self.head_nf,
+                    target_window=self.pred_len,
+                    head_dropout=configs.dropout,
+                    mid_dropout=getattr(configs, 'mid_dropout', 0.2),
+                    high_dropout=getattr(configs, 'high_dropout', 0.5),
+                    use_soft_threshold=bool(getattr(configs, 'head_soft_threshold', 1)),
+                    soft_threshold_init=getattr(configs, 'head_soft_threshold_init', 0.1),
+                    use_conv=bool(getattr(configs, 'head_use_conv', 0)),
+                )
+                print("[TimeLLM] 使用 TriBandDecoupledHead (三频带解耦输出头)")
+            else:
+                # 原始 FlattenHead
+                self.output_projection = FlattenHead(configs.enc_in, self.head_nf, self.pred_len,
+                                                     head_dropout=configs.dropout)
+                print("[TimeLLM] 使用 FlattenHead (原版输出头)")
         else:
             raise NotImplementedError
 
         self.normalize_layers = Normalize(configs.enc_in, affine=False)
 
-    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None):
+    def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, return_components=False):
+        """
+        Args:
+            return_components: 是否返回频率分量 (用于深度监督训练)
+        
+        Returns:
+            dec_out: 预测结果
+            components: (可选) 频率分量字典，当 return_components=True 且使用 TriBandDecoupledHead 时返回
+        """
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            dec_out = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec)
-            return dec_out[:, -self.pred_len:, :]
+            result = self.forecast(x_enc, x_mark_enc, x_dec, x_mark_dec, return_components)
+            if return_components and self.use_freq_decoupled_head:
+                dec_out, components = result
+                return dec_out[:, -self.pred_len:, :], components
+            else:
+                dec_out = result
+                return dec_out[:, -self.pred_len:, :]
         return None
 
-    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec):
+    def forecast(self, x_enc, x_mark_enc, x_dec, x_mark_dec, return_components=False):
 
         x_enc = self.normalize_layers(x_enc, 'norm')
 
@@ -281,12 +317,29 @@ class Model(nn.Module):
             dec_out, (-1, n_vars, dec_out.shape[-2], dec_out.shape[-1]))
         dec_out = dec_out.permute(0, 1, 3, 2).contiguous()
 
-        dec_out = self.output_projection(dec_out[:, :, :, -self.patch_nums:])
-        dec_out = dec_out.permute(0, 2, 1).contiguous()
-
-        dec_out = self.normalize_layers(dec_out, 'denorm')
-
-        return dec_out
+        # 输出投影
+        if self.use_freq_decoupled_head and return_components:
+            # 使用三频带解耦头，返回分量用于深度监督
+            dec_out, components = self.output_projection(
+                dec_out[:, :, :, -self.patch_nums:], 
+                return_components=True
+            )
+            # 注意：TriBandDecoupledHead 已经做了 permute，输出是 (B, pred_len, N)
+            dec_out = self.normalize_layers(dec_out, 'denorm')
+            # 分量也需要 denorm
+            for k in components:
+                components[k] = self.normalize_layers(components[k], 'denorm')
+            return dec_out, components
+        else:
+            dec_out = self.output_projection(dec_out[:, :, :, -self.patch_nums:])
+            if self.use_freq_decoupled_head:
+                # TriBandDecoupledHead 输出已经是 (B, pred_len, N)
+                dec_out = self.normalize_layers(dec_out, 'denorm')
+            else:
+                # FlattenHead 输出是 (B, N, pred_len)，需要 permute
+                dec_out = dec_out.permute(0, 2, 1).contiguous()
+                dec_out = self.normalize_layers(dec_out, 'denorm')
+            return dec_out
 
     def calcute_lags(self, x_enc):
         q_fft = torch.fft.rfft(x_enc.permute(0, 2, 1).contiguous(), dim=-1)

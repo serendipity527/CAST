@@ -294,6 +294,332 @@ class FrequencyChannelAttention(nn.Module):
         return output, attention_weights.squeeze(-1)  # (B*N, P, d_model), (B*N, num_bands)
 
 
+class FrequencyChannelAttentionV2(nn.Module):
+    """
+    频率通道注意力模块 V2 (Frequency Channel Attention with Local Context)
+    
+    相比 V1 的改进:
+    - 使用 1D 卷积替代 Global Average Pooling (GAP)
+    - 实现 Patch-wise 的动态频率权重分配
+    - 每个时间步的 Patch 可以拥有不同的频率融合权重
+    - 更好地处理非平稳时间序列（如突变、趋势转折点）
+    
+    核心优势:
+    1. 时变动态路由 (Time-Varying Dynamic Routing): 
+       - 第 5 个 Patch 可能是突变点 → 自动加大高频权重
+       - 第 6 个 Patch 回归平稳 → 自动加大低频权重
+    2. 局部上下文感知: 1D 卷积聚合相邻 Patch 的信息，而非全局平均
+    3. 保留时间维度: 输出权重形状为 (B*N, P, num_bands)，而非 (B*N, num_bands)
+    
+    流程:
+    输入: [e_band_0, e_band_1, ..., e_band_n]  各频段 embedding, 形状 (B*N, P, d_model)
+        → Stack: (B*N, P, d_model, num_bands)
+        → Permute: (B*N, num_bands, d_model, P)
+        → 1D Conv (在 Patch 维度上): 聚合局部上下文
+        → MLP: 计算每个 Patch 的频率重要性分数
+        → Softmax: 归一化权重 → (B*N, P, num_bands)
+        → Scale: 逐 Patch 加权求和 → (B*N, P, d_model)
+    """
+    
+    def __init__(self, num_bands, d_model, reduction=4, kernel_size=3):
+        """
+        Args:
+            num_bands: 频段数量 (level + 1)
+            d_model: embedding 维度
+            reduction: MLP 中间层的降维比例
+            kernel_size: 1D 卷积核大小，控制局部上下文范围
+        """
+        super(FrequencyChannelAttentionV2, self).__init__()
+        
+        self.num_bands = num_bands
+        self.d_model = d_model
+        self.kernel_size = kernel_size
+        
+        # 隐藏层维度
+        hidden_dim = max(d_model // reduction, 8)
+        
+        # ========== 局部上下文聚合 (替代 GAP) ==========
+        # 使用 Depthwise 1D Conv 在 Patch 维度上聚合局部信息
+        # 输入: (B*N * num_bands, d_model, P)
+        # 输出: (B*N * num_bands, d_model, P)  -- 保留时间维度
+        self.local_context = nn.Sequential(
+            nn.Conv1d(
+                in_channels=d_model,
+                out_channels=d_model,
+                kernel_size=kernel_size,
+                padding=kernel_size // 2,  # same padding
+                groups=d_model,  # Depthwise: 每个通道独立卷积，参数量小
+                bias=False
+            ),
+            nn.BatchNorm1d(d_model),
+            nn.ReLU(inplace=True)
+        )
+        
+        # ========== Excitation 网络 ==========
+        # 输入: (B*N, P, num_bands, d_model)
+        # 输出: (B*N, P, num_bands, 1)
+        self.excitation = nn.Sequential(
+            nn.Linear(d_model, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1)
+        )
+        
+        # 初始化: 让初始权重相对均匀
+        with torch.no_grad():
+            last_linear = self.excitation[-1]
+            nn.init.zeros_(last_linear.weight)
+            nn.init.zeros_(last_linear.bias)
+        
+        # 打印配置
+        self._print_config()
+    
+    def _print_config(self):
+        """打印模块配置"""
+        print("=" * 70)
+        print("[FrequencyChannelAttentionV2] Patch-wise 频率通道注意力已启用")
+        print("=" * 70)
+        print(f"  ├─ 频段数量: {self.num_bands}")
+        print(f"  ├─ Embedding 维度: {self.d_model}")
+        print(f"  ├─ 卷积核大小: {self.kernel_size} (局部上下文范围)")
+        print(f"  ├─ 聚合方式: Depthwise 1D Conv (替代 GAP)")
+        print(f"  └─ 输出权重: Patch-wise (每个时间步独立权重)")
+        print("=" * 70)
+    
+    def forward(self, band_embeddings):
+        """
+        Args:
+            band_embeddings: list of tensors, 每个形状 (B*N, num_patches, d_model)
+                             顺序: [e_cA, e_cD_n, e_cD_{n-1}, ..., e_cD_1]
+        
+        Returns:
+            output: 加权融合后的 embedding, 形状 (B*N, num_patches, d_model)
+            attention_weights: 注意力权重, 形状 (B*N, num_patches, num_bands), 用于可视化/调试
+        """
+        # Stack: list of (B*N, P, d_model) -> (B*N, P, d_model, num_bands)
+        stacked = torch.stack(band_embeddings, dim=-1)
+        B_N, P, D, num_bands = stacked.shape
+        
+        # ========== Step 1: 局部上下文聚合 (替代 GAP) ==========
+        # 对每个频段独立应用 1D Conv
+        # stacked: (B*N, P, d_model, num_bands) -> (B*N, num_bands, d_model, P)
+        x = stacked.permute(0, 3, 2, 1).contiguous()
+        
+        # Reshape 以便批量处理所有频段
+        # (B*N, num_bands, d_model, P) -> (B*N * num_bands, d_model, P)
+        x = x.view(B_N * num_bands, D, P)
+        
+        # 1D Conv: 在 Patch 维度上聚合局部上下文
+        # (B*N * num_bands, d_model, P) -> (B*N * num_bands, d_model, P)
+        x = self.local_context(x)
+        
+        # Reshape 回来
+        # (B*N * num_bands, d_model, P) -> (B*N, num_bands, d_model, P)
+        x = x.view(B_N, num_bands, D, P)
+        
+        # Permute: (B*N, num_bands, d_model, P) -> (B*N, P, num_bands, d_model)
+        x = x.permute(0, 3, 1, 2).contiguous()
+        
+        # ========== Step 2: Excitation (计算每个 Patch 的频率权重) ==========
+        # (B*N, P, num_bands, d_model) -> (B*N, P, num_bands, 1)
+        scores = self.excitation(x)
+        
+        # ========== Step 3: Softmax 归一化 ==========
+        # 在 num_bands 维度上归一化，确保每个 Patch 的频率权重和为 1
+        # (B*N, P, num_bands, 1)
+        attention_weights = F.softmax(scores, dim=2)
+        
+        # ========== Step 4: Scale (逐 Patch 加权求和) ==========
+        # stacked: (B*N, P, d_model, num_bands)
+        # attention_weights: (B*N, P, num_bands, 1) -> (B*N, P, 1, num_bands)
+        weights_expanded = attention_weights.permute(0, 1, 3, 2)  # (B*N, P, 1, num_bands)
+        
+        # 加权求和: (B*N, P, d_model, num_bands) * (B*N, P, 1, num_bands) -> sum -> (B*N, P, d_model)
+        output = (stacked * weights_expanded).sum(dim=-1)
+        
+        # 返回融合结果和注意力权重 (用于调试)
+        # attention_weights: (B*N, P, num_bands, 1) -> (B*N, P, num_bands)
+        return output, attention_weights.squeeze(-1)
+
+
+class FrequencyChannelAttentionV3(nn.Module):
+    """
+    频率通道注意力模块 V3 (Global-Local Fusion / 双流机制)
+    
+    核心思想: Base + Residual (基准 + 残差)
+    - Global Stream: GAP -> MLP -> 全局共享权重 (稳定的先验)
+    - Local Stream: 1D Conv -> MLP -> Patch-wise 动态权重 (局部微调)
+    - 融合: 可学习的加权求和，让模型自动平衡全局与局部的重要性
+    
+    优势:
+    1. 抗过拟合: Global 分支限制权重自由度，防止 Local 分支对噪声过度反应
+    2. 鲁棒性: 在平稳段退化为 V1，在突变段发挥 V2 的优势
+    3. 残差学习: Local 只需学习对 Global 的修正，学习难度降低
+    
+    流程:
+    输入: [e_band_0, e_band_1, ..., e_band_n]  各频段 embedding
+        → Global Stream: GAP -> MLP -> W_global (B*N, 1, num_bands)
+        → Local Stream: 1D Conv -> MLP -> W_local (B*N, P, num_bands)
+        → Fusion: α * W_global + (1-α) * W_local (α 可学习)
+        → Softmax -> Scale -> 输出 (B*N, P, d_model)
+    """
+    
+    def __init__(self, num_bands, d_model, reduction=4, kernel_size=3):
+        """
+        Args:
+            num_bands: 频段数量 (level + 1)
+            d_model: embedding 维度
+            reduction: MLP 中间层的降维比例
+            kernel_size: Local 分支的 1D 卷积核大小
+        """
+        super(FrequencyChannelAttentionV3, self).__init__()
+        
+        self.num_bands = num_bands
+        self.d_model = d_model
+        self.kernel_size = kernel_size
+        
+        # 隐藏层维度
+        hidden_dim = max(d_model // reduction, 8)
+        
+        # ========== Global Stream (全局分支) ==========
+        # GAP + MLP: 提取全局频率特征
+        self.global_excitation = nn.Sequential(
+            nn.Linear(d_model, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1)
+        )
+        
+        # ========== Local Stream (局部分支) ==========
+        # Depthwise 1D Conv: 聚合局部上下文
+        self.local_context = nn.Sequential(
+            nn.Conv1d(
+                in_channels=d_model,
+                out_channels=d_model,
+                kernel_size=kernel_size,
+                padding=kernel_size // 2,
+                groups=d_model,
+                bias=False
+            ),
+            nn.BatchNorm1d(d_model),
+            nn.ReLU(inplace=True)
+        )
+        
+        # Local MLP: 计算局部频率权重
+        self.local_excitation = nn.Sequential(
+            nn.Linear(d_model, hidden_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(hidden_dim, 1)
+        )
+        
+        # ========== Fusion (可学习的融合权重) ==========
+        # alpha: 控制 Global vs Local 的平衡
+        # 初始化为 0.5，让模型从均衡状态开始学习
+        self.alpha = nn.Parameter(torch.tensor(0.5))
+        
+        # 初始化: 让初始权重相对均匀
+        self._init_weights()
+        
+        # 打印配置
+        self._print_config()
+    
+    def _init_weights(self):
+        """初始化权重"""
+        with torch.no_grad():
+            # Global MLP 初始化
+            nn.init.zeros_(self.global_excitation[-1].weight)
+            nn.init.zeros_(self.global_excitation[-1].bias)
+            # Local MLP 初始化
+            nn.init.zeros_(self.local_excitation[-1].weight)
+            nn.init.zeros_(self.local_excitation[-1].bias)
+    
+    def _print_config(self):
+        """打印模块配置"""
+        print("=" * 70)
+        print("[FrequencyChannelAttentionV3] Global-Local 双流融合机制已启用")
+        print("=" * 70)
+        print(f"  ├─ 频段数量: {self.num_bands}")
+        print(f"  ├─ Embedding 维度: {self.d_model}")
+        print(f"  ├─ Local 卷积核大小: {self.kernel_size}")
+        print(f"  ├─ Global Stream: GAP + MLP (Instance-wise 基准权重)")
+        print(f"  ├─ Local Stream: 1D Conv + MLP (Patch-wise 微调权重)")
+        print(f"  ├─ 融合方式: α * W_global + (1-α) * W_local")
+        print(f"  └─ 初始 α: {self.alpha.item():.2f} (可学习)")
+        print("=" * 70)
+    
+    def forward(self, band_embeddings):
+        """
+        Args:
+            band_embeddings: list of tensors, 每个形状 (B*N, num_patches, d_model)
+        
+        Returns:
+            output: 加权融合后的 embedding, 形状 (B*N, num_patches, d_model)
+            attention_weights: 注意力权重, 形状 (B*N, num_patches, num_bands)
+            fusion_info: dict, 包含 alpha, global_weights, local_weights 用于调试
+        """
+        # Stack: list of (B*N, P, d_model) -> (B*N, P, d_model, num_bands)
+        stacked = torch.stack(band_embeddings, dim=-1)
+        B_N, P, D, num_bands = stacked.shape
+        
+        # ========== Global Stream ==========
+        # GAP: (B*N, P, d_model, num_bands) -> (B*N, d_model, num_bands)
+        global_feat = stacked.mean(dim=1)
+        
+        # Permute for MLP: (B*N, d_model, num_bands) -> (B*N, num_bands, d_model)
+        global_feat = global_feat.permute(0, 2, 1)
+        
+        # Global MLP: (B*N, num_bands, d_model) -> (B*N, num_bands, 1)
+        global_scores = self.global_excitation(global_feat)
+        
+        # Expand to patch dimension: (B*N, num_bands, 1) -> (B*N, P, num_bands, 1)
+        global_scores = global_scores.unsqueeze(1).expand(-1, P, -1, -1)
+        
+        # ========== Local Stream ==========
+        # Permute: (B*N, P, d_model, num_bands) -> (B*N, num_bands, d_model, P)
+        x = stacked.permute(0, 3, 2, 1).contiguous()
+        
+        # Reshape: (B*N, num_bands, d_model, P) -> (B*N * num_bands, d_model, P)
+        x = x.view(B_N * num_bands, D, P)
+        
+        # 1D Conv: (B*N * num_bands, d_model, P) -> (B*N * num_bands, d_model, P)
+        x = self.local_context(x)
+        
+        # Reshape back: (B*N * num_bands, d_model, P) -> (B*N, num_bands, d_model, P)
+        x = x.view(B_N, num_bands, D, P)
+        
+        # Permute: (B*N, num_bands, d_model, P) -> (B*N, P, num_bands, d_model)
+        x = x.permute(0, 3, 1, 2).contiguous()
+        
+        # Local MLP: (B*N, P, num_bands, d_model) -> (B*N, P, num_bands, 1)
+        local_scores = self.local_excitation(x)
+        
+        # ========== Fusion (可学习加权) ==========
+        # alpha 限制在 [0, 1] 范围内
+        alpha = torch.sigmoid(self.alpha)
+        
+        # 加权融合: α * global + (1-α) * local
+        # (B*N, P, num_bands, 1)
+        fused_scores = alpha * global_scores + (1 - alpha) * local_scores
+        
+        # ========== Softmax 归一化 ==========
+        attention_weights = F.softmax(fused_scores, dim=2)
+        
+        # ========== Scale (逐 Patch 加权求和) ==========
+        # stacked: (B*N, P, d_model, num_bands)
+        # attention_weights: (B*N, P, num_bands, 1) -> (B*N, P, 1, num_bands)
+        weights_expanded = attention_weights.permute(0, 1, 3, 2)
+        
+        # 加权求和: (B*N, P, d_model, num_bands) * (B*N, P, 1, num_bands) -> (B*N, P, d_model)
+        output = (stacked * weights_expanded).sum(dim=-1)
+        
+        # 构建调试信息
+        fusion_info = {
+            'alpha': alpha.item(),
+            'global_weights': F.softmax(global_scores, dim=2).squeeze(-1),  # (B*N, P, num_bands)
+            'local_weights': F.softmax(local_scores, dim=2).squeeze(-1),   # (B*N, P, num_bands)
+        }
+        
+        return output, attention_weights.squeeze(-1), fusion_info
+
+
 class WaveletPatchEmbedding(nn.Module):
     """
     多分辨率 Patch Embedding：基于 Haar 小波分解
@@ -524,7 +850,8 @@ class WISTPatchEmbedding(nn.Module):
                  hf_dropout=0.5, gate_bias_init=2.0,
                  use_soft_threshold=True, use_causal_conv=True,
                  pyramid_fusion=True, mf_dropout=0.3,
-                 use_freq_attention=False):
+                 use_freq_attention=False, freq_attention_version=1,
+                 freq_attn_kernel_size=3):
         super(WISTPatchEmbedding, self).__init__()
         
         # 基础参数
@@ -536,6 +863,8 @@ class WISTPatchEmbedding(nn.Module):
         self.use_causal_conv = use_causal_conv
         self.pyramid_fusion = pyramid_fusion and (wavelet_level >= 2)  # 只有 level>=2 才启用金字塔融合
         self.use_freq_attention = use_freq_attention  # 是否使用频率通道注意力替代门控融合
+        self.freq_attention_version = freq_attention_version  # 1=GAP版本, 2=1D Conv版本 (Patch-wise)
+        self.freq_attn_kernel_size = freq_attn_kernel_size  # V2版本的卷积核大小
         
         # 导入因果小波变换模块
         from layers.CausalWavelet import CausalSWT
@@ -593,13 +922,30 @@ class WISTPatchEmbedding(nn.Module):
             
             # ========== 融合机制选择 ==========
             if use_freq_attention:
-                # 使用频率通道注意力 (SE-Block 风格)
-                # 替代硬编码的门控融合，实现 Instance-wise 动态路由
-                self.freq_attention = FrequencyChannelAttention(
-                    num_bands=self.num_bands,
-                    d_model=d_model,
-                    reduction=4
-                )
+                # 使用频率通道注意力替代硬编码的门控融合
+                if freq_attention_version == 3:
+                    # V3: Global-Local 双流融合机制
+                    self.freq_attention = FrequencyChannelAttentionV3(
+                        num_bands=self.num_bands,
+                        d_model=d_model,
+                        reduction=4,
+                        kernel_size=freq_attn_kernel_size
+                    )
+                elif freq_attention_version == 2:
+                    # V2: 使用 1D Conv 替代 GAP，实现 Patch-wise 动态路由
+                    self.freq_attention = FrequencyChannelAttentionV2(
+                        num_bands=self.num_bands,
+                        d_model=d_model,
+                        reduction=4,
+                        kernel_size=freq_attn_kernel_size
+                    )
+                else:
+                    # V1: 使用 GAP，实现 Instance-wise 动态路由
+                    self.freq_attention = FrequencyChannelAttention(
+                        num_bands=self.num_bands,
+                        d_model=d_model,
+                        reduction=4
+                    )
                 self.gate_layers = None  # 不需要门控层
             else:
                 # 金字塔融合门控: 从高频到低频逐级融合
@@ -646,12 +992,30 @@ class WISTPatchEmbedding(nn.Module):
             
             # ========== 融合机制选择 ==========
             if use_freq_attention:
-                # 使用频率通道注意力 (SE-Block 风格)
-                self.freq_attention = FrequencyChannelAttention(
-                    num_bands=2,  # 双通道: 低频 + 高频
-                    d_model=d_model,
-                    reduction=4
-                )
+                # 使用频率通道注意力替代门控融合
+                if freq_attention_version == 3:
+                    # V3: Global-Local 双流融合机制
+                    self.freq_attention = FrequencyChannelAttentionV3(
+                        num_bands=2,  # 双通道: 低频 + 高频
+                        d_model=d_model,
+                        reduction=4,
+                        kernel_size=freq_attn_kernel_size
+                    )
+                elif freq_attention_version == 2:
+                    # V2: 使用 1D Conv 替代 GAP，实现 Patch-wise 动态路由
+                    self.freq_attention = FrequencyChannelAttentionV2(
+                        num_bands=2,  # 双通道: 低频 + 高频
+                        d_model=d_model,
+                        reduction=4,
+                        kernel_size=freq_attn_kernel_size
+                    )
+                else:
+                    # V1: 使用 GAP，实现 Instance-wise 动态路由
+                    self.freq_attention = FrequencyChannelAttention(
+                        num_bands=2,  # 双通道: 低频 + 高频
+                        d_model=d_model,
+                        reduction=4
+                    )
                 self.gate = None
             else:
                 self.gate = nn.Sequential(
@@ -702,7 +1066,16 @@ class WISTPatchEmbedding(nn.Module):
         
         # 频率通道注意力 vs 门控融合
         if self.use_freq_attention:
-            print(f"  ├─ 融合机制: ✅ 频率通道注意力 (SE-Block, Instance-wise 动态路由)")
+            if self.freq_attention_version == 3:
+                print(f"  ├─ 融合机制: ✅ 频率通道注意力 V3 (Global-Local 双流融合)")
+                print(f"  │   ├─ Global Stream: GAP + MLP (基准权重)")
+                print(f"  │   ├─ Local Stream: 1D Conv + MLP (微调权重)")
+                print(f"  │   └─ 卷积核大小: {self.freq_attn_kernel_size}")
+            elif self.freq_attention_version == 2:
+                print(f"  ├─ 融合机制: ✅ 频率通道注意力 V2 (1D Conv, Patch-wise 动态路由)")
+                print(f"  │   └─ 卷积核大小: {self.freq_attn_kernel_size}")
+            else:
+                print(f"  ├─ 融合机制: ✅ 频率通道注意力 V1 (GAP, Instance-wise 动态路由)")
         else:
             print(f"  ├─ 融合机制: 门控融合 (Gate Fusion)")
             print(f"  ├─ 门控初始化: bias={self.gate_bias_init:.1f} (低频≈{100*torch.sigmoid(torch.tensor(self.gate_bias_init)).item():.0f}%)")

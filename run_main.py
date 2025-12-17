@@ -18,6 +18,7 @@ os.environ['CURL_CA_BUNDLE'] = ''
 os.environ["PYTORCH_CUDA_ALLOC_CONF"] = "max_split_size_mb:64"
 
 from utils.tools import del_files, EarlyStopping, adjust_learning_rate, vali, load_content
+from layers.FrequencyDecoupledHead import DeepSupervisionLoss
 
 parser = argparse.ArgumentParser(description='Time-LLM')
 
@@ -106,7 +107,31 @@ parser.add_argument('--mf_dropout', type=float, default=0.3,
                     help='中频通道Dropout率 (仅金字塔融合模式, 从mf_dropout线性插值到hf_dropout)')
 parser.add_argument('--use_freq_attention', type=int, default=0,
                     help='是否使用频率通道注意力替代门控融合 (SE-Block风格, Instance-wise动态路由): 0=关闭(门控融合), 1=开启(注意力融合)')
+parser.add_argument('--freq_attention_version', type=int, default=1,
+                    help='频率通道注意力版本 (仅use_freq_attention=1时生效): 1=V1(GAP,Instance-wise), 2=V2(1D Conv,Patch-wise), 3=V3(Global-Local双流融合)')
+parser.add_argument('--freq_attn_kernel_size', type=int, default=3,
+                    help='V2/V3版本的1D卷积核大小 (仅freq_attention_version=2或3时生效): 1/3/5/7, 控制局部上下文范围')
 
+# 频率解耦输出头 (Tri-Band Decoupled Head) 配置
+parser.add_argument('--use_freq_decoupled_head', type=int, default=0,
+                    help='是否启用三频带解耦输出头: 0=关闭(原版FlattenHead), 1=开启(TriBandDecoupledHead)')
+parser.add_argument('--mid_dropout', type=float, default=0.2,
+                    help='中频头Dropout率 (仅use_freq_decoupled_head=1时生效)')
+parser.add_argument('--high_dropout', type=float, default=0.5,
+                    help='高频头Dropout率 (仅use_freq_decoupled_head=1时生效)')
+parser.add_argument('--head_soft_threshold', type=int, default=1,
+                    help='高频头是否启用隐层软阈值去噪: 0=关闭, 1=开启')
+parser.add_argument('--head_soft_threshold_init', type=float, default=0.1,
+                    help='软阈值初始值 (仅head_soft_threshold=1时生效)')
+parser.add_argument('--head_use_conv', type=int, default=0,
+                    help='输出头是否使用Conv1d替代Linear (增加位置感知): 0=Linear, 1=Conv1d')
+parser.add_argument('--use_deep_supervision', type=int, default=0,
+                    help='是否启用深度监督训练 (仅use_freq_decoupled_head=1时生效): 0=关闭, 1=开启')
+parser.add_argument('--deep_supervision_alpha', type=float, default=0.3,
+                    help='深度监督辅助损失权重α: Total = Main + α * Aux')
+parser.add_argument('--deep_supervision_swt', type=str, default='standard',
+                    choices=['standard', 'causal'],
+                    help='深度监督SWT类型: standard=非因果(Plan A), causal=因果(Plan B)')
 
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
@@ -190,9 +215,21 @@ for ii in range(args.itr):
 
     criterion = nn.MSELoss()
     mae_metric = nn.L1Loss()
-
+    
     train_loader, vali_loader, test_loader, model, model_optim, scheduler = accelerator.prepare(
         train_loader, vali_loader, test_loader, model, model_optim, scheduler)
+
+    # 深度监督损失 (仅当启用频率解耦头且开启深度监督时)
+    # 注意：必须在 accelerator.prepare 之后创建，以便获取正确的设备
+    ds_loss_fn = None
+    if args.use_freq_decoupled_head and args.use_deep_supervision:
+        ds_loss_fn = DeepSupervisionLoss(
+            wavelet=args.wavelet_type,
+            level=args.wavelet_level,
+            alpha=args.deep_supervision_alpha,
+            use_causal_swt=(args.deep_supervision_swt == 'causal')
+        ).to(accelerator.device)
+        accelerator.print(f"[run_main] 深度监督已启用: α={args.deep_supervision_alpha}, SWT={args.deep_supervision_swt}")
 
     if args.use_amp:
         scaler = torch.cuda.amp.GradScaler()
@@ -234,13 +271,21 @@ for ii in range(args.itr):
             else:
                 if args.output_attention:
                     outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)[0]
+                elif ds_loss_fn is not None:
+                    # 深度监督模式：获取频率分量
+                    outputs, components = model(batch_x, batch_x_mark, dec_inp, batch_y_mark, return_components=True)
                 else:
                     outputs = model(batch_x, batch_x_mark, dec_inp, batch_y_mark)
 
                 f_dim = -1 if args.features == 'MS' else 0
                 outputs = outputs[:, -args.pred_len:, f_dim:]
                 batch_y = batch_y[:, -args.pred_len:, f_dim:]
-                loss = criterion(outputs, batch_y)
+                
+                if ds_loss_fn is not None:
+                    # 深度监督损失
+                    loss, loss_dict = ds_loss_fn(outputs, batch_y, components)
+                else:
+                    loss = criterion(outputs, batch_y)
                 train_loss.append(loss.item())
 
             if (i + 1) % 100 == 0:
