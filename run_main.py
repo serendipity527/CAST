@@ -133,6 +133,12 @@ parser.add_argument('--deep_supervision_swt', type=str, default='standard',
                     choices=['standard', 'causal'],
                     help='深度监督SWT类型: standard=非因果(Plan A), causal=因果(Plan B)')
 
+# 双尺度残差输出头 (Dual-Scale Residual Head) 配置
+parser.add_argument('--use_dual_scale_head', type=int, default=0,
+                    help='是否使用双尺度残差输出头: 0=FlattenHead, 1=DualScaleHead (替代TriBandHead)')
+parser.add_argument('--detail_dropout', type=float, default=0.0,
+                    help='双尺度头细节分支Dropout率 (仅use_dual_scale_head=1时生效)')
+
 # optimization
 parser.add_argument('--num_workers', type=int, default=10, help='data loader num workers')
 parser.add_argument('--itr', type=int, default=1, help='experiments times')

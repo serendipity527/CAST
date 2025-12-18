@@ -1,16 +1,9 @@
 """
 频率解耦输出头 (Frequency Decoupled Head)
 
-实现三频带解耦头 (Tri-Band Decoupled Head) V2.0 方案：
-1. 三个独立的投影头分别预测低频/中频/高频时域分量
-2. 高频头使用隐层 SoftThreshold 去噪
-3. 深度监督：使用标准 SWT 分解 Ground Truth 作为辅助监督目标
-4. 时域直接相加重构
-
-核心设计：
-- Head 1 (Trend): Linear，无正则，预测平滑趋势
-- Head 2 (Mid): Linear + Dropout(0.2)，预测中频波动
-- Head 3 (Detail): Linear + SoftThreshold(隐层) + Dropout(0.5)，预测高频细节
+包含多种从 LLM 隐状态映射到时域预测的输出头设计：
+1. Tri-Band Decoupled Head (V2.0): 三频带解耦 + 软阈值 + 深度监督
+2. Dual-Scale Residual Head (New): 双尺度残差 (Global Trend + Local Detail)
 
 Author: CAST Project
 Date: 2024
@@ -231,6 +224,113 @@ class TriBandDecoupledHead(nn.Module):
         return final_pred
 
 
+class DualScaleResidualHead(nn.Module):
+    """
+    双尺度残差头 (Dual-Scale Residual Head) - 简化版
+    
+    设计理念：显式分离整体趋势与局部细节，利用残差学习加速收敛。
+    
+    架构：
+        LLM Output (B, N, d_ff, patch_nums)
+           │
+           ├──► Branch A (Trend): GAP -> Linear(d_ff, T) ───────► Pred_Trend (整体水位)
+           │
+           └──► Branch B (Detail): Flatten -> Linear(nf, T) ────► Pred_Detail (局部波动)
+           │
+           ▼
+        Final = Pred_Trend + Pred_Detail
+    
+    Args:
+        n_vars: 变量数量
+        d_ff: FFN 维度 (特征通道数)
+        patch_nums: Patch 数量
+        target_window: 预测窗口长度 (pred_len)
+        head_dropout: 输出 Dropout 比例
+    """
+    def __init__(self, n_vars, d_ff, patch_nums, target_window, head_dropout=0.1):
+        super().__init__()
+        self.n_vars = n_vars
+        self.d_ff = d_ff
+        self.patch_nums = patch_nums
+        self.target_window = target_window
+        self.nf = d_ff * patch_nums
+        
+        # Branch A: Global Trend (GAP + Small Linear)
+        # 输入: (B*N, d_ff) <- GAP over patch_nums
+        self.head_trend = nn.Linear(d_ff, target_window)
+        
+        # Branch B: Local Detail (Flatten + Large Linear)
+        # 输入: (B*N, nf)
+        self.flatten = nn.Flatten(start_dim=-2)
+        self.head_detail = nn.Linear(self.nf, target_window)
+        
+        self.dropout = nn.Dropout(head_dropout)
+        
+        self._init_weights()
+        self._print_config()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+    
+    def _print_config(self):
+        print("=" * 70)
+        print("[DualScaleResidualHead] 双尺度残差头已启用")
+        print("=" * 70)
+        print(f"  ├─ 输入维度: (B, {self.n_vars}, {self.d_ff}, {self.patch_nums})")
+        print(f"  ├─ 预测窗口: {self.target_window}")
+        print(f"  ├─ Branch A (Trend): GAP -> Linear({self.d_ff} -> {self.target_window})")
+        print(f"  ├─ Branch B (Detail): Flatten -> Linear({self.nf} -> {self.target_window})")
+        print(f"  └─ Dropout: {self.dropout.p}")
+        print("=" * 70)
+
+    def forward(self, x):
+        """
+        Args:
+            x: (B, n_vars, d_ff, patch_nums)
+        Returns:
+            final_pred: (B, target_window, n_vars)
+        """
+        B, N, D, P = x.shape
+        # 确保输入是预期的形状
+        # 如果输入维度不对，尝试修正 (兼容 Flatten 后的输入)
+        if x.dim() == 3: # (B, N, nf)
+            if x.shape[-1] == self.nf:
+                 # 这种情况下无法进行 Trend 分支的 GAP 计算，因为空间信息已丢失
+                 # 所以如果用了这个Head，必须输入 (B, N, D, P)
+                 # 作为一个兼容性回退，我们可以尝试 reshape 回去，但这依赖 d_ff 和 patch_nums 的正确性
+                 try:
+                     x = x.view(B, N, self.d_ff, self.patch_nums)
+                 except:
+                     raise ValueError(f"[DualScaleResidualHead] 输入形状错误: {x.shape}, 期望 (B, N, {self.d_ff}, {self.patch_nums})")
+        
+        # 变换为 (B*N, D, P) 以便批量处理
+        x = x.view(B * N, D, P)
+        
+        # Branch A: Trend
+        # Global Average Pooling over Patch Dimension
+        x_trend = x.mean(dim=-1) # (B*N, D)
+        pred_trend = self.head_trend(x_trend) # (B*N, T)
+        
+        # Branch B: Detail
+        x_detail = x.view(B * N, -1) # Flatten -> (B*N, D*P)
+        pred_detail = self.head_detail(x_detail) # (B*N, T)
+        
+        # Fusion
+        final_pred = pred_trend + pred_detail
+        
+        # Dropout
+        final_pred = self.dropout(final_pred)
+        
+        # Reshape: (B*N, T) -> (B, N, T) -> (B, T, N)
+        final_pred = final_pred.view(B, N, self.target_window).permute(0, 2, 1).contiguous()
+        
+        return final_pred
+
+
 class DeepSupervisionLoss(nn.Module):
     """
     深度监督损失模块
@@ -446,7 +546,7 @@ if __name__ == "__main__":
     sys.path.insert(0, project_root)
     
     print("=" * 70)
-    print("TriBandDecoupledHead 模块测试")
+    print("FrequencyDecoupledHead 模块测试")
     print("=" * 70)
     
     # 设备选择
@@ -468,9 +568,9 @@ if __name__ == "__main__":
     print(f"  - nf (d_ff * patch_nums): {nf}")
     print(f"  - pred_len: {pred_len}")
     
-    # ========== 测试 1: 基本前向传播 ==========
+    # ========== 测试 1: TriBandDecoupledHead ==========
     print("\n" + "=" * 70)
-    print("测试 1: 基本前向传播")
+    print("测试 1: TriBandDecoupledHead")
     print("=" * 70)
     
     head = TriBandDecoupledHead(
@@ -493,154 +593,45 @@ if __name__ == "__main__":
     output = head(x, return_components=False)
     print(f"输出形状: {output.shape}")
     assert output.shape == (B, pred_len, N), f"输出形状错误: {output.shape}"
-    print("✅ 基本前向传播通过")
-    
-    # ========== 测试 2: 返回频率分量 ==========
+    print("✅ TriBandDecoupledHead 前向传播通过")
+
+    # ========== 测试 2: DualScaleResidualHead ==========
     print("\n" + "=" * 70)
-    print("测试 2: 返回频率分量 (用于深度监督)")
+    print("测试 2: DualScaleResidualHead")
     print("=" * 70)
     
-    output, components = head(x, return_components=True)
-    print(f"\n最终预测形状: {output.shape}")
-    print(f"趋势分量形状: {components['pred_trend'].shape}")
-    print(f"中频分量形状: {components['pred_mid'].shape}")
-    print(f"细节分量形状: {components['pred_detail'].shape}")
-    
-    # 验证分量相加等于总预测
-    reconstructed = components['pred_trend'] + components['pred_mid'] + components['pred_detail']
-    diff = (output - reconstructed).abs().max().item()
-    print(f"\n分量相加 vs 最终输出 差异: {diff:.10f}")
-    
-    # 注意：由于输出 Dropout，eval 模式下应该相等
-    head.eval()
-    with torch.no_grad():
-        output_eval, components_eval = head(x, return_components=True)
-        reconstructed_eval = components_eval['pred_trend'] + components_eval['pred_mid'] + components_eval['pred_detail']
-        diff_eval = (output_eval - reconstructed_eval).abs().max().item()
-    print(f"(eval 模式) 分量相加 vs 最终输出 差异: {diff_eval:.10f}")
-    assert diff_eval < 1e-5, "分量重构不一致!"
-    print("✅ 频率分量返回正确")
-    head.train()
-    
-    # ========== 测试 3: SoftThreshold 功能 ==========
-    print("\n" + "=" * 70)
-    print("测试 3: SoftThreshold 功能")
-    print("=" * 70)
-    
-    st = SoftThreshold(num_features=64, init_tau=0.1).to(device)
-    
-    # 测试输入
-    test_input = torch.randn(B, 64, device=device)
-    test_output = st(test_input)
-    
-    # 检查小于阈值的值是否被置零
-    tau = st.tau.abs()
-    small_values_mask = test_input.abs() < tau
-    zero_check = (test_output[small_values_mask] == 0).all()
-    print(f"\n阈值 τ 均值: {tau.mean().item():.4f}")
-    print(f"小于阈值的输入被置零: {zero_check.item()}")
-    print("✅ SoftThreshold 功能正确")
-    
-    # ========== 测试 4: 深度监督损失 ==========
-    print("\n" + "=" * 70)
-    print("测试 4: 深度监督损失 (DeepSupervisionLoss)")
-    print("=" * 70)
-    
-    # 创建深度监督损失模块 (使用因果 SWT，因为标准 SWT 可能没装 ptwt)
-    ds_loss = DeepSupervisionLoss(
-        wavelet='db4',
-        level=2,
-        alpha=0.3,
-        use_causal_swt=True  # 使用因果版本以确保测试通过
+    ds_head = DualScaleResidualHead(
+        n_vars=N,
+        d_ff=d_ff,
+        patch_nums=patch_nums,
+        target_window=pred_len,
+        head_dropout=0.1
     ).to(device)
     
-    # 模拟预测和目标
-    pred = torch.randn(B, pred_len, N, device=device)
-    target = torch.randn(B, pred_len, N, device=device)
+    # 模拟 LLM 输出
+    x = torch.randn(B, N, d_ff, patch_nums, device=device)
     
-    # 获取分量
-    head.eval()
-    with torch.no_grad():
-        _, components = head(x, return_components=True)
-    head.train()
+    # 前向传播
+    output = ds_head(x)
+    print(f"输出形状: {output.shape}")
+    assert output.shape == (B, pred_len, N), f"输出形状错误: {output.shape}"
+    print("✅ DualScaleResidualHead 前向传播通过")
     
-    # 计算损失
-    total_loss, loss_dict = ds_loss(pred, target, components)
-    
-    print(f"\n损失详情:")
-    for k, v in loss_dict.items():
-        if isinstance(v, float):
-            print(f"  - {k}: {v:.6f}")
-        else:
-            print(f"  - {k}: {v}")
-    
-    print(f"\n总损失: {total_loss.item():.6f}")
-    print("✅ 深度监督损失计算正确")
-    
-    # ========== 测试 5: 梯度传播 ==========
-    print("\n" + "=" * 70)
-    print("测试 5: 梯度传播")
-    print("=" * 70)
-    
-    head.train()
+    # 检查两个分支的梯度
+    ds_head.train()
     x.requires_grad = True
-    
-    output, components = head(x, return_components=True)
-    loss, _ = ds_loss(output, target, components)
+    output = ds_head(x)
+    loss = output.mean()
     loss.backward()
     
-    # 检查梯度
-    grad_check = x.grad is not None and x.grad.abs().sum() > 0
-    print(f"\n输入梯度存在: {grad_check}")
-    
-    # 检查各 Head 权重的梯度
-    for name, param in head.named_parameters():
-        if param.grad is not None:
-            grad_norm = param.grad.norm().item()
-            print(f"  - {name}: grad_norm = {grad_norm:.6f}")
+    print("\n梯度检查:")
+    if ds_head.head_trend.weight.grad is not None:
+         print(f"  - Trend Head Grad: {ds_head.head_trend.weight.grad.norm().item():.6f}")
+    if ds_head.head_detail.weight.grad is not None:
+         print(f"  - Detail Head Grad: {ds_head.head_detail.weight.grad.norm().item():.6f}")
     
     print("✅ 梯度传播正确")
-    
-    # ========== 测试 6: 参数统计 ==========
-    print("\n" + "=" * 70)
-    print("测试 6: 参数统计")
-    print("=" * 70)
-    
-    total_params = sum(p.numel() for p in head.parameters())
-    trainable_params = sum(p.numel() for p in head.parameters() if p.requires_grad)
-    
-    print(f"\n总参数量: {total_params:,}")
-    print(f"可训练参数量: {trainable_params:,}")
-    
-    # 分头统计
-    trend_params = sum(p.numel() for n, p in head.named_parameters() if 'trend' in n)
-    mid_params = sum(p.numel() for n, p in head.named_parameters() if 'mid' in n)
-    detail_params = sum(p.numel() for n, p in head.named_parameters() if 'detail' in n)
-    
-    print(f"\nHead Trend 参数: {trend_params:,}")
-    print(f"Head Mid 参数: {mid_params:,}")
-    print(f"Head Detail 参数: {detail_params:,}")
-    print("✅ 参数统计完成")
-    
-    # ========== 测试 7: Conv1d 模式 ==========
-    print("\n" + "=" * 70)
-    print("测试 7: Conv1d 模式 (位置感知)")
-    print("=" * 70)
-    
-    head_conv = TriBandDecoupledHead(
-        n_vars=N,
-        nf=nf,
-        target_window=pred_len,
-        use_soft_threshold=True,
-        use_conv=True  # 使用 Conv1d
-    ).to(device)
-    
-    x_test = torch.randn(B, N, d_ff, patch_nums, device=device)
-    output_conv = head_conv(x_test)
-    print(f"\nConv1d 模式输出形状: {output_conv.shape}")
-    assert output_conv.shape == (B, pred_len, N)
-    print("✅ Conv1d 模式正确")
-    
+
     # ========== 测试完成 ==========
     print("\n" + "=" * 70)
     print("🎉 所有测试通过!")

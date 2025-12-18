@@ -809,6 +809,10 @@ class CausalConv1d(nn.Module):
         # 这样卷积核只能看到当前和过去的 Patch
         x = F.pad(x, (self.padding, 0))  # (left_pad, right_pad)
         
+        # 确保输入类型与权重类型匹配（处理混合精度训练）
+        if x.dtype != self.conv.weight.dtype:
+            x = x.to(self.conv.weight.dtype)
+        
         # 卷积
         x = self.conv(x)
         
@@ -1130,11 +1134,21 @@ class WISTPatchEmbedding(nn.Module):
         high_patches = high_patches.reshape(B * N, -1, self.patch_len)
         
         # 低频路径: 直接投影
+        # 确保输入类型与权重类型匹配（处理混合精度训练）
+        if hasattr(self.low_freq_embedding, 'weight') and low_patches.dtype != self.low_freq_embedding.weight.dtype:
+            low_patches = low_patches.to(self.low_freq_embedding.weight.dtype)
+        elif hasattr(self.low_freq_embedding, 'conv') and hasattr(self.low_freq_embedding.conv, 'weight') and low_patches.dtype != self.low_freq_embedding.conv.weight.dtype:
+            low_patches = low_patches.to(self.low_freq_embedding.conv.weight.dtype)
         e_low = self.low_freq_embedding(low_patches)
         
         # 高频路径: 软阈值去噪 → 投影 → Dropout
         if self.use_soft_threshold:
             high_patches = self.soft_threshold(high_patches)
+        # 确保输入类型与权重类型匹配（处理混合精度训练）
+        if hasattr(self.high_freq_embedding, 'weight') and high_patches.dtype != self.high_freq_embedding.weight.dtype:
+            high_patches = high_patches.to(self.high_freq_embedding.weight.dtype)
+        elif hasattr(self.high_freq_embedding, 'conv') and hasattr(self.high_freq_embedding.conv, 'weight') and high_patches.dtype != self.high_freq_embedding.conv.weight.dtype:
+            high_patches = high_patches.to(self.high_freq_embedding.conv.weight.dtype)
         e_high = self.high_freq_embedding(high_patches)
         e_high = self.hf_dropout(e_high)
         
@@ -1186,8 +1200,15 @@ class WISTPatchEmbedding(nn.Module):
             if i > 0 and self.use_soft_threshold:
                 patches = self.band_thresholds[i](patches)
             
+            # 确保输入类型与权重类型匹配（处理混合精度训练）
+            embedding_layer = self.band_embeddings[i]
+            if hasattr(embedding_layer, 'weight') and patches.dtype != embedding_layer.weight.dtype:
+                patches = patches.to(embedding_layer.weight.dtype)
+            elif hasattr(embedding_layer, 'conv') and hasattr(embedding_layer.conv, 'weight') and patches.dtype != embedding_layer.conv.weight.dtype:
+                patches = patches.to(embedding_layer.conv.weight.dtype)
+            
             # 投影
-            e_band = self.band_embeddings[i](patches)  # (B*N, num_patches, d_model)
+            e_band = embedding_layer(patches)  # (B*N, num_patches, d_model)
             
             # 对高频频段应用 Dropout
             e_band = self.band_dropouts[i](e_band)

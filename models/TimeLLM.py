@@ -7,6 +7,7 @@ from transformers import LlamaConfig, LlamaModel, LlamaTokenizer, GPT2Config, GP
     BertModel, BertTokenizer
 from layers.Embed import PatchEmbedding, WaveletPatchEmbedding, WISTPatchEmbedding
 from layers.FrequencyDecoupledHead import TriBandDecoupledHead, DeepSupervisionLoss
+from layers.DualScaleHead import DualScaleResidualHead
 import transformers
 from layers.StandardNorm import Normalize
 
@@ -220,11 +221,23 @@ class Model(nn.Module):
         self.patch_nums = int((configs.seq_len - self.patch_len) / self.stride + 2)
         self.head_nf = self.d_ff * self.patch_nums
 
-        # 输出头选择：频率解耦头 vs 原始 FlattenHead
+        # 输出头选择：双尺度残差头 vs 频率解耦头 vs 原始 FlattenHead
+        self.use_dual_scale_head = getattr(configs, 'use_dual_scale_head', 0)
         self.use_freq_decoupled_head = getattr(configs, 'use_freq_decoupled_head', 0)
         
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
-            if self.use_freq_decoupled_head:
+            if self.use_dual_scale_head:
+                # 双尺度残差输出头 (Dual-Scale Residual Head)
+                self.output_projection = DualScaleResidualHead(
+                    n_vars=configs.enc_in,
+                    d_ff=self.d_ff,
+                    patch_nums=self.patch_nums,
+                    target_window=self.pred_len,
+                    head_dropout=configs.dropout,
+                    detail_dropout=getattr(configs, 'detail_dropout', 0.0),
+                )
+                print("[TimeLLM] 使用 DualScaleResidualHead (双尺度残差输出头)")
+            elif self.use_freq_decoupled_head:
                 # 三频带解耦输出头 (Tri-Band Decoupled Head)
                 self.output_projection = TriBandDecoupledHead(
                     n_vars=configs.enc_in,
@@ -307,7 +320,8 @@ class Model(nn.Module):
         source_embeddings = self.mapping_layer(self.word_embeddings.permute(1, 0)).permute(1, 0)
 
         x_enc = x_enc.permute(0, 2, 1).contiguous()
-        enc_out, n_vars = self.patch_embedding(x_enc.to(torch.bfloat16))
+        # 直接使用 float32 避免数据类型不匹配问题
+        enc_out, n_vars = self.patch_embedding(x_enc.float())
         enc_out = self.reprogramming_layer(enc_out, source_embeddings, source_embeddings)
         llama_enc_out = torch.cat([prompt_embeddings, enc_out], dim=1)
         dec_out = self.llm_model(inputs_embeds=llama_enc_out).last_hidden_state
@@ -332,8 +346,8 @@ class Model(nn.Module):
             return dec_out, components
         else:
             dec_out = self.output_projection(dec_out[:, :, :, -self.patch_nums:])
-            if self.use_freq_decoupled_head:
-                # TriBandDecoupledHead 输出已经是 (B, pred_len, N)
+            if self.use_dual_scale_head or self.use_freq_decoupled_head:
+                # DualScaleHead 和 TriBandDecoupledHead 输出已经是 (B, pred_len, N)
                 dec_out = self.normalize_layers(dec_out, 'denorm')
             else:
                 # FlattenHead 输出是 (B, N, pred_len)，需要 permute
