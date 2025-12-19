@@ -260,6 +260,18 @@ class Model(nn.Module):
             raise NotImplementedError
 
         self.normalize_layers = Normalize(configs.enc_in, affine=False)
+        
+        # 小波Prompt增强功能配置
+        self.use_wavelet_prompt = getattr(configs, 'use_wavelet_prompt', 0)
+        self.wavelet_prompt_method = getattr(configs, 'wavelet_prompt_method', 'haar')
+        self.prompt_hfer_threshold = getattr(configs, 'prompt_hfer_threshold', 0.15)
+        
+        if self.use_wavelet_prompt:
+            print(f"[TimeLLM] 小波Prompt增强已启用")
+            print(f"  - 分析方法: {self.wavelet_prompt_method}")
+            print(f"  - HFER阈值: {self.prompt_hfer_threshold}")
+        else:
+            print(f"[TimeLLM] 使用原版Prompt（无小波特征）")
 
     def forward(self, x_enc, x_mark_enc, x_dec, x_mark_dec, mask=None, return_components=False):
         """
@@ -295,20 +307,51 @@ class Model(nn.Module):
 
         prompt = []
         for b in range(x_enc.shape[0]):
-            min_values_str = str(min_values[b].tolist()[0])
-            max_values_str = str(max_values[b].tolist()[0])
-            median_values_str = str(medians[b].tolist()[0])
+            # 格式化统计值（保留合理精度）
+            min_val = min_values[b].tolist()[0]
+            max_val = max_values[b].tolist()[0]
+            median_val = medians[b].tolist()[0]
+            
+            min_values_str = f"{min_val:.3f}"
+            max_values_str = f"{max_val:.3f}"
+            median_values_str = f"{median_val:.3f}"
             lags_values_str = str(lags[b].tolist())
-            prompt_ = (
-                f"<|start_prompt|>Dataset description: {self.description}"
-                f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "
-                "Input statistics: "
-                f"min value {min_values_str}, "
-                f"max value {max_values_str}, "
-                f"median value {median_values_str}, "
-                f"the trend of input is {'upward' if trends[b] > 0 else 'downward'}, "
-                f"top 5 lags are : {lags_values_str}<|<end_prompt>|>"
-            )
+            
+            # === 条件执行：小波特征分析 ===
+            wavelet_desc = ""
+            if self.use_wavelet_prompt:
+                # 获取当前样本的时间序列 (T,)
+                current_x = x_enc[b, :, 0]  # 取第一个维度（已经是单变量）
+                hfer, volatility, smoothness_level = self.analyze_wavelet_features(current_x)
+                wavelet_desc = self.get_wavelet_description(hfer, volatility, smoothness_level)
+            # ==========================
+            
+            # 根据是否启用小波prompt构建不同的prompt
+            if self.use_wavelet_prompt and wavelet_desc:
+                prompt_ = (
+                    f"<|start_prompt|>Dataset description: {self.description}"
+                    f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "
+                    "Input statistics: "
+                    f"min value {min_values_str}, "
+                    f"max value {max_values_str}, "
+                    f"median value {median_values_str}, "
+                    f"the trend of input is {'upward' if trends[b] > 0 else 'downward'}, "
+                    f"top 5 lags are : {lags_values_str}; "
+                    f"Frequency characteristics: {wavelet_desc}."
+                    f"<|<end_prompt>|>"
+                )
+            else:
+                # 原版prompt（无小波特征）
+                prompt_ = (
+                    f"<|start_prompt|>Dataset description: {self.description}"
+                    f"Task description: forecast the next {str(self.pred_len)} steps given the previous {str(self.seq_len)} steps information; "
+                    "Input statistics: "
+                    f"min value {min_values_str}, "
+                    f"max value {max_values_str}, "
+                    f"median value {median_values_str}, "
+                    f"the trend of input is {'upward' if trends[b] > 0 else 'downward'}, "
+                    f"top 5 lags are : {lags_values_str}<|<end_prompt>|>"
+                )
 
             prompt.append(prompt_)
 
@@ -354,6 +397,141 @@ class Model(nn.Module):
                 dec_out = dec_out.permute(0, 2, 1).contiguous()
                 dec_out = self.normalize_layers(dec_out, 'denorm')
             return dec_out
+
+    def analyze_wavelet_features(self, x_input):
+        """
+        对输入序列进行小波特征分析
+        
+        Args:
+            x_input: (T,) 单变量时间序列
+        
+        Returns:
+            hfer: 高频能量占比 (High Frequency Energy Ratio)
+            volatility: 波动性指标
+            smoothness_level: 平滑度等级 (0-4)
+        """
+        x = x_input.squeeze()
+        
+        if self.wavelet_prompt_method == 'haar':
+            return self._analyze_haar_features(x)
+        elif self.wavelet_prompt_method == 'simple':
+            return self._analyze_simple_features(x)
+        else:
+            # 默认使用Haar方法
+            return self._analyze_haar_features(x)
+    
+    def _analyze_haar_features(self, x):
+        """
+        使用Haar小波分析特征
+        """
+        # 确保序列长度为偶数（Haar小波要求）
+        if len(x) % 2 == 1:
+            x = x[:-1]  # 去掉最后一个点
+        
+        if len(x) < 4:  # 序列太短，返回默认值
+            return 0.1, 0.1, 1
+        
+        # 1. 单级Haar小波分解
+        # 低频分量（趋势）：相邻点平均
+        approx = (x[0::2] + x[1::2]) / 2
+        # 高频分量（细节）：相邻点差值
+        detail = (x[0::2] - x[1::2]) / 2
+        
+        # 2. 计算能量指标
+        total_energy = torch.sum(x ** 2) + 1e-8  # 避免除零
+        detail_energy = torch.sum(detail ** 2)
+        
+        # 高频能量占比
+        hfer = (detail_energy / total_energy).item()
+        
+        # 3. 计算波动性指标
+        # 高频分量的标准差（归一化）
+        volatility = (torch.std(detail) / (torch.std(x) + 1e-8)).item()
+        
+        # 4. 使用可配置的阈值进行平滑度等级量化
+        smoothness_level = self._classify_smoothness(hfer)
+        
+        return hfer, volatility, smoothness_level
+    
+    def _analyze_simple_features(self, x):
+        """
+        使用简化的频域分析方法
+        """
+        if len(x) < 4:
+            return 0.1, 0.1, 1
+        
+        # 1. 简单的差分分析
+        diff1 = torch.diff(x)  # 一阶差分
+        diff2 = torch.diff(diff1)  # 二阶差分
+        
+        # 2. 计算变化率能量
+        signal_energy = torch.sum(x ** 2) + 1e-8
+        diff_energy = torch.sum(diff1 ** 2)
+        
+        # 高频能量占比（基于差分）
+        hfer = (diff_energy / signal_energy).item()
+        
+        # 3. 波动性（基于二阶差分）
+        volatility = (torch.std(diff2) / (torch.std(x) + 1e-8)).item()
+        
+        # 4. 平滑度等级
+        smoothness_level = self._classify_smoothness(hfer)
+        
+        return hfer, volatility, smoothness_level
+    
+    def _classify_smoothness(self, hfer):
+        """
+        根据可配置的阈值分类平滑度等级
+        """
+        # 使用配置的阈值，默认为0.15
+        base_threshold = self.prompt_hfer_threshold
+        
+        if hfer < base_threshold * 0.13:  # 0.02 (when base=0.15)
+            return 0  # 极平滑
+        elif hfer < base_threshold * 0.53:  # 0.08 (when base=0.15)
+            return 1  # 很平滑
+        elif hfer < base_threshold * 1.33:  # 0.20 (when base=0.15)
+            return 2  # 中等
+        elif hfer < base_threshold * 2.67:  # 0.40 (when base=0.15)
+            return 3  # 波动
+        else:
+            return 4  # 极嘈杂
+    
+    def get_wavelet_description(self, hfer, volatility, smoothness_level):
+        """
+        将小波特征转换为自然语言描述
+        
+        Args:
+            hfer: 高频能量占比
+            volatility: 波动性指标
+            smoothness_level: 平滑度等级
+        
+        Returns:
+            wavelet_desc: 小波特征的自然语言描述
+        """
+        # 平滑度描述
+        smoothness_terms = [
+            "extremely smooth and trend-dominated",      # 0
+            "very smooth with minimal fluctuations",     # 1
+            "moderately smooth with some variations",    # 2
+            "volatile with significant fluctuations",    # 3
+            "highly volatile and noise-dominated"        # 4
+        ]
+        
+        smoothness_desc = smoothness_terms[smoothness_level]
+        
+        # 波动性强度描述
+        if volatility < 0.3:
+            volatility_desc = "low volatility"
+        elif volatility < 0.6:
+            volatility_desc = "moderate volatility"
+        else:
+            volatility_desc = "high volatility"
+        
+        # 组合描述
+        wavelet_desc = f"The signal is {smoothness_desc} with {volatility_desc} (HF energy: {hfer:.1%})"
+        
+        return wavelet_desc
 
     def calcute_lags(self, x_enc):
         q_fft = torch.fft.rfft(x_enc.permute(0, 2, 1).contiguous(), dim=-1)

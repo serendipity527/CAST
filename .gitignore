@@ -1,9 +1,9 @@
 back/
-*.log
+# *.log
 *.pyc
 __pycache__/
 dataset/
-logs/
+# logs/
 test/
 checkpoints/
 else/

@@ -112,6 +112,15 @@ parser.add_argument('--freq_attention_version', type=int, default=1,
 parser.add_argument('--freq_attn_kernel_size', type=int, default=3,
                     help='V2/V3版本的1D卷积核大小 (仅freq_attention_version=2或3时生效): 1/3/5/7, 控制局部上下文范围')
 
+# 小波Prompt增强功能 (Wavelet-Enhanced Prompt)
+parser.add_argument('--use_wavelet_prompt', type=int, default=0,
+                    help='是否启用小波特征增强的Prompt: 0=关闭(原版Prompt), 1=开启(集成小波频域特征)')
+parser.add_argument('--wavelet_prompt_method', type=str, default='haar',
+                    choices=['haar', 'simple'],
+                    help='小波Prompt分析方法: haar=Haar小波分解, simple=简化频域分析')
+parser.add_argument('--prompt_hfer_threshold', type=float, default=0.15,
+                    help='高频能量占比阈值，用于调整平滑度等级判断 (默认0.15)')
+
 # 频率解耦输出头 (Tri-Band Decoupled Head) 配置
 parser.add_argument('--use_freq_decoupled_head', type=int, default=0,
                     help='是否启用三频带解耦输出头: 0=关闭(原版FlattenHead), 1=开启(TriBandDecoupledHead)')

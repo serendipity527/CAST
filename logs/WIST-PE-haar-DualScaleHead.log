@@ -1,0 +1,1246 @@
+nohup: 忽略输入
+/home/dmx_MT/.conda/envs/timellm/lib/python3.11/site-packages/torch/cuda/__init__.py:54: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[CausalSWT] 创建因果平稳小波变换
+  - 小波类型: haar
+  - 滤波器长度: 2
+  - 分解层数: 2
+  - 输出频段数: 3
+  - 特性: 严格因果（仅使用过去数据）
+======================================================================
+[WIST-PE] Wavelet-Informed Spatio-Temporal Patch Embedding 已启用
+======================================================================
+  ├─ 小波基类型: haar
+  ├─ 分解层数: 2
+  ├─ 频段数量: 3 (1个低频 + 2个高频)
+  ├─ Patch 长度: 16
+  ├─ Stride: 8
+  ├─ 输出维度: 64
+  ├─ 投影方式: ✅ 因果卷积 (CausalConv1d, kernel=3)
+  ├─ 融合模式: ✅ 分层金字塔融合 (Pyramid Fusion)
+  │   ├─ 中频 Dropout: p=0.2
+  │   ├─ 高频 Dropout: p=0.2
+  │   └─ 融合顺序: cD_1 → cD_2 → ... → cD_n → cA
+  ├─ 融合机制: ✅ 频率通道注意力 V1 (GAP, Instance-wise 动态路由)
+  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)
+  └─ 特性: 全局因果小波分解 + 差异化处理 + 注意力融合
+======================================================================
+[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)
+======================================================================
+[DualScaleResidualHead] 双尺度残差输出头已启用
+======================================================================
+  ├─ 输入形状: (B, 7, 256, 64)
+  ├─ 预测窗口: 96
+  ├─ 趋势头参数: 24,672
+  ├─ 细节头参数: 1,572,960
+  ├─ 总参数量: 1,597,632
+  ├─ 细节 Dropout: 0.1
+  └─ 输出 Dropout: 0.1
+======================================================================
+[TimeLLM] 使用 DualScaleResidualHead (双尺度残差输出头)
+[2025-12-18 00:14:04,024] [INFO] [real_accelerator.py:191:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2025-12-18 00:14:04,402] [INFO] [logging.py:96:log_dist] [Rank -1] DeepSpeed info: version=0.14.0, git-hash=unknown, git-branch=unknown
+[2025-12-18 00:14:04,403] [INFO] [comm.py:637:init_distributed] cdb=None
+[2025-12-18 00:14:04,403] [INFO] [comm.py:652:init_distributed] Not using the DeepSpeed or dist launchers, attempting to detect MPI environment...
+[2025-12-18 00:14:05,097] [INFO] [comm.py:702:mpi_discovery] Discovered MPI settings of world_rank=0, local_rank=0, world_size=1, master_addr=172.23.21.220, master_port=29500
+[2025-12-18 00:14:05,097] [INFO] [comm.py:668:init_distributed] Initializing TorchBackend in DeepSpeed with backend nccl
+[2025-12-18 00:14:07,744] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Flops Profiler Enabled: False
+[2025-12-18 00:14:07,745] [INFO] [logging.py:96:log_dist] [Rank 0] Using client Optimizer as basic optimizer
+[2025-12-18 00:14:07,745] [INFO] [logging.py:96:log_dist] [Rank 0] Removing param_group that has no 'params' in the basic Optimizer
+[2025-12-18 00:14:07,746] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Basic Optimizer = Adam
+[2025-12-18 00:14:07,746] [INFO] [utils.py:56:is_zero_supported_optimizer] Checking ZeRO support for optimizer=Adam type=<class 'torch.optim.adam.Adam'>
+[2025-12-18 00:14:07,746] [INFO] [logging.py:96:log_dist] [Rank 0] Creating torch.bfloat16 ZeRO stage 2 optimizer
+[2025-12-18 00:14:07,747] [INFO] [stage_1_and_2.py:149:__init__] Reduce bucket size 200000000
+[2025-12-18 00:14:07,747] [INFO] [stage_1_and_2.py:150:__init__] Allgather bucket size 200000000
+[2025-12-18 00:14:07,747] [INFO] [stage_1_and_2.py:151:__init__] CPU Offload: False
+[2025-12-18 00:14:07,747] [INFO] [stage_1_and_2.py:152:__init__] Round robin gradient partitioning: False
+[2025-12-18 00:14:08,423] [INFO] [utils.py:800:see_memory_usage] Before initializing optimizer states
+[2025-12-18 00:14:08,424] [INFO] [utils.py:801:see_memory_usage] MA 0.48 GB         Max_MA 0.59 GB         CA 0.61 GB         Max_CA 1 GB 
+[2025-12-18 00:14:08,425] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 70.79 GB, percent = 14.1%
+[2025-12-18 00:14:08,691] [INFO] [utils.py:800:see_memory_usage] After initializing optimizer states
+[2025-12-18 00:14:08,692] [INFO] [utils.py:801:see_memory_usage] MA 0.48 GB         Max_MA 0.69 GB         CA 0.82 GB         Max_CA 1 GB 
+[2025-12-18 00:14:08,693] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 70.79 GB, percent = 14.1%
+[2025-12-18 00:14:08,693] [INFO] [stage_1_and_2.py:539:__init__] optimizer state initialized
+[2025-12-18 00:14:08,963] [INFO] [utils.py:800:see_memory_usage] After initializing ZeRO optimizer
+[2025-12-18 00:14:08,964] [INFO] [utils.py:801:see_memory_usage] MA 0.48 GB         Max_MA 0.48 GB         CA 0.82 GB         Max_CA 1 GB 
+[2025-12-18 00:14:08,964] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 70.79 GB, percent = 14.1%
+[2025-12-18 00:14:08,966] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Final Optimizer = Adam
+[2025-12-18 00:14:08,966] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed using client LR scheduler
+[2025-12-18 00:14:08,966] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed LR Scheduler = None
+[2025-12-18 00:14:08,967] [INFO] [logging.py:96:log_dist] [Rank 0] step=0, skipped=0, lr=[4.000000000000002e-06], mom=[(0.95, 0.999)]
+[2025-12-18 00:14:08,967] [INFO] [config.py:996:print] DeepSpeedEngine configuration:
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   activation_checkpointing_config  {
+    "partition_activations": false, 
+    "contiguous_memory_optimization": false, 
+    "cpu_checkpointing": false, 
+    "number_checkpoints": null, 
+    "synchronize_checkpoint_boundary": false, 
+    "profile": false
+}
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   aio_config ................... {'block_size': 1048576, 'queue_depth': 8, 'thread_count': 1, 'single_submit': False, 'overlap_events': True}
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   amp_enabled .................. False
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   amp_params ................... False
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   autotuning_config ............ {
+    "enabled": false, 
+    "start_step": null, 
+    "end_step": null, 
+    "metric_path": null, 
+    "arg_mappings": null, 
+    "metric": "throughput", 
+    "model_info": null, 
+    "results_dir": "autotuning_results", 
+    "exps_dir": "autotuning_exps", 
+    "overwrite": true, 
+    "fast": true, 
+    "start_profile_step": 3, 
+    "end_profile_step": 5, 
+    "tuner_type": "gridsearch", 
+    "tuner_early_stopping": 5, 
+    "tuner_num_trials": 50, 
+    "model_info_path": null, 
+    "mp_size": 1, 
+    "max_train_batch_size": null, 
+    "min_train_batch_size": 1, 
+    "max_train_micro_batch_size_per_gpu": 1.024000e+03, 
+    "min_train_micro_batch_size_per_gpu": 1, 
+    "num_tuning_micro_batch_sizes": 3
+}
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   bfloat16_enabled ............. True
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   bfloat16_immediate_grad_update  False
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   checkpoint_parallel_write_pipeline  False
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   checkpoint_tag_validation_enabled  True
+[2025-12-18 00:14:08,968] [INFO] [config.py:1000:print]   checkpoint_tag_validation_fail  False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   comms_config ................. <deepspeed.comm.config.DeepSpeedCommsConfig object at 0x7f19dc5e7450>
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   communication_data_type ...... None
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   compile_config ............... enabled=False backend='inductor' kwargs={}
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   compression_config ........... {'weight_quantization': {'shared_parameters': {'enabled': False, 'quantizer_kernel': False, 'schedule_offset': 0, 'quantize_groups': 1, 'quantize_verbose': False, 'quantization_type': 'symmetric', 'quantize_weight_in_forward': False, 'rounding': 'nearest', 'fp16_mixed_quantize': False, 'quantize_change_ratio': 0.001}, 'different_groups': {}}, 'activation_quantization': {'shared_parameters': {'enabled': False, 'quantization_type': 'symmetric', 'range_calibration': 'dynamic', 'schedule_offset': 1000}, 'different_groups': {}}, 'sparse_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'row_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'head_pruning': {'shared_parameters': {'enabled': False, 'method': 'topk', 'schedule_offset': 1000}, 'different_groups': {}}, 'channel_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'layer_reduction': {'enabled': False}}
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   curriculum_enabled_legacy .... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   curriculum_params_legacy ..... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   data_efficiency_config ....... {'enabled': False, 'seed': 1234, 'data_sampling': {'enabled': False, 'num_epochs': 1000, 'num_workers': 0, 'curriculum_learning': {'enabled': False}}, 'data_routing': {'enabled': False, 'random_ltd': {'enabled': False, 'layer_token_lr_schedule': {'enabled': False}}}}
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   data_efficiency_enabled ...... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   dataloader_drop_last ......... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   disable_allgather ............ False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   dump_state ................... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   dynamic_loss_scale_args ...... None
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_enabled ........... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_gas_boundary_resolution  1
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_layer_name ........ bert.encoder.layer
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_layer_num ......... 0
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_max_iter .......... 100
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_stability ......... 1e-06
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_tol ............... 0.01
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   eigenvalue_verbose ........... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   elasticity_enabled ........... False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   flops_profiler_config ........ {
+    "enabled": false, 
+    "recompute_fwd_factor": 0.0, 
+    "profile_step": 1, 
+    "module_depth": -1, 
+    "top_modules": 1, 
+    "detailed": true, 
+    "output_file": null
+}
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   fp16_auto_cast ............... None
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   fp16_enabled ................. False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   fp16_master_weights_and_gradients  False
+[2025-12-18 00:14:08,969] [INFO] [config.py:1000:print]   global_rank .................. 0
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   grad_accum_dtype ............. None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   gradient_accumulation_steps .. 1
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   gradient_clipping ............ 0.0
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   gradient_predivide_factor .... 1.0
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   graph_harvesting ............. False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   hybrid_engine ................ enabled=False max_out_tokens=512 inference_tp_size=1 release_inference_cache=False pin_parameters=True tp_gather_partition_size=8
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   initial_dynamic_scale ........ 1
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   load_universal_checkpoint .... False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   loss_scale ................... 1.0
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   memory_breakdown ............. False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   mics_hierarchial_params_gather  False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   mics_shard_size .............. -1
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   monitor_config ............... tensorboard=TensorBoardConfig(enabled=False, output_path='', job_name='DeepSpeedJobName') wandb=WandbConfig(enabled=False, group=None, team=None, project='deepspeed') csv_monitor=CSVConfig(enabled=False, output_path='', job_name='DeepSpeedJobName') enabled=False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   nebula_config ................ {
+    "enabled": false, 
+    "persistent_storage_path": null, 
+    "persistent_time_interval": 100, 
+    "num_of_version_in_retention": 2, 
+    "enable_nebula_load": true, 
+    "load_path": null
+}
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   optimizer_legacy_fusion ...... False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   optimizer_name ............... None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   optimizer_params ............. None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   pipeline ..................... {'stages': 'auto', 'partition': 'best', 'seed_layers': False, 'activation_checkpoint_interval': 0, 'pipe_partitioned': True, 'grad_partitioned': True}
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   pld_enabled .................. False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   pld_params ................... False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   prescale_gradients ........... False
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   scheduler_name ............... None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   scheduler_params ............. None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   seq_parallel_communication_data_type  torch.float32
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   sparse_attention ............. None
+[2025-12-18 00:14:08,970] [INFO] [config.py:1000:print]   sparse_gradients_enabled ..... False
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   steps_per_print .............. inf
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   train_batch_size ............. 24
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   train_micro_batch_size_per_gpu  24
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   use_data_before_expert_parallel_  False
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   use_node_local_storage ....... False
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   wall_clock_breakdown ......... False
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   weight_quantization_config ... None
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   world_size ................... 1
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   zero_allow_untested_optimizer  True
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   zero_config .................. stage=2 contiguous_gradients=True reduce_scatter=True reduce_bucket_size=200000000 use_multi_rank_bucket_allreduce=True allgather_partitions=True allgather_bucket_size=200000000 overlap_comm=True load_from_fp32_weights=True elastic_checkpoint=False offload_param=None offload_optimizer=None sub_group_size=1000000000 cpu_offload_param=None cpu_offload_use_pin_memory=None cpu_offload=None prefetch_bucket_size=50,000,000 param_persistence_threshold=100,000 model_persistence_threshold=sys.maxsize max_live_parameters=1,000,000,000 max_reuse_distance=1,000,000,000 gather_16bit_weights_on_model_save=False stage3_gather_fp16_weights_on_model_save=False ignore_unused_parameters=True legacy_stage1=False round_robin_gradients=False zero_hpz_partition_size=1 zero_quantized_weights=False zero_quantized_nontrainable_weights=False zero_quantized_gradients=False mics_shard_size=-1 mics_hierarchical_params_gather=False memory_efficient_linear=True pipeline_loading_checkpoint=False override_module_apply=True
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   zero_enabled ................. True
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   zero_force_ds_cpu_optimizer .. True
+[2025-12-18 00:14:08,971] [INFO] [config.py:1000:print]   zero_optimization_stage ...... 2
+[2025-12-18 00:14:08,971] [INFO] [config.py:986:print_user_config]   json = {
+    "bf16": {
+        "enabled": true, 
+        "auto_cast": true
+    }, 
+    "zero_optimization": {
+        "stage": 2, 
+        "allgather_partitions": true, 
+        "allgather_bucket_size": 2.000000e+08, 
+        "overlap_comm": true, 
+        "reduce_scatter": true, 
+        "reduce_bucket_size": 2.000000e+08, 
+        "contiguous_gradients": true, 
+        "sub_group_size": 1.000000e+09
+    }, 
+    "gradient_accumulation_steps": 1, 
+    "train_batch_size": 24, 
+    "train_micro_batch_size_per_gpu": 24, 
+    "steps_per_print": inf, 
+    "wall_clock_breakdown": false, 
+    "fp16": {
+        "enabled": false
+    }, 
+    "zero_allow_untested_optimizer": true
+}
+
+1it [00:01,  1.96s/it]
+	iters: 100, epoch: 1 | loss: 1.1558281
+	speed: 0.1851s/iter; left time: 6485.7240s
+	iters: 200, epoch: 1 | loss: 1.0156631
+	speed: 0.1141s/iter; left time: 3987.0179s
+	iters: 300, epoch: 1 | loss: 0.9213443
+	speed: 0.1117s/iter; left time: 3890.4669s
+	iters: 400, epoch: 1 | loss: 0.6721368
+	speed: 0.1180s/iter; left time: 4097.0210s
+	iters: 500, epoch: 1 | loss: 0.8004020
+	speed: 0.1096s/iter; left time: 3797.0901s
+	iters: 600, epoch: 1 | loss: 0.4874535
+	speed: 0.1104s/iter; left time: 3811.1010s
+	iters: 700, epoch: 1 | loss: 0.5169997
+	speed: 0.1081s/iter; left time: 3723.2489s
+	iters: 800, epoch: 1 | loss: 0.9140500
+	speed: 0.1247s/iter; left time: 4280.0999s
+	iters: 900, epoch: 1 | loss: 0.8313811
+	speed: 0.1225s/iter; left time: 4194.6092s
+	iters: 1000, epoch: 1 | loss: 1.1685681
+	speed: 0.1089s/iter; left time: 3718.4342s
+	iters: 1100, epoch: 1 | loss: 0.9068298
+	speed: 0.1127s/iter; left time: 3833.8005s
+	iters: 1200, epoch: 1 | loss: 0.8492785
+	speed: 0.1091s/iter; left time: 3701.0905s
+	iters: 1300, epoch: 1 | loss: 0.7325429
+	speed: 0.1163s/iter; left time: 3935.1439s
+	iters: 1400, epoch: 1 | loss: 1.0282975
+	speed: 0.1058s/iter; left time: 3568.4721s
+	iters: 1500, epoch: 1 | loss: 0.6585712
+	speed: 0.1173s/iter; left time: 3943.4035s
+	iters: 1600, epoch: 1 | loss: 1.0516323
+	speed: 0.1202s/iter; left time: 4029.0133s
+	iters: 1700, epoch: 1 | loss: 0.5919724
+	speed: 0.1190s/iter; left time: 3979.5863s
+	iters: 1800, epoch: 1 | loss: 0.4240448
+	speed: 0.1089s/iter; left time: 3630.7359s
+	iters: 1900, epoch: 1 | loss: 0.7149737
+	speed: 0.1154s/iter; left time: 3835.7103s
+	iters: 2000, epoch: 1 | loss: 0.6334692
+	speed: 0.1185s/iter; left time: 3927.6526s
+	iters: 2100, epoch: 1 | loss: 0.5082353
+	speed: 0.1083s/iter; left time: 3576.9123s
+	iters: 2200, epoch: 1 | loss: 0.4367157
+	speed: 0.1117s/iter; left time: 3678.2922s
+	iters: 2300, epoch: 1 | loss: 0.4802151
+	speed: 0.1103s/iter; left time: 3619.7065s
+Epoch: 1 cost time: 267.6456813812256
+
+
+Epoch: 1 | Train Loss: 0.8203651 Vali Loss: 1.0284925 Test Loss: 0.5201732 MAE Loss: 0.4889841
+lr = 0.0000040000
+Updating learning rate to 4.000000000000002e-06
+
+	iters: 100, epoch: 2 | loss: 0.6671786
+	speed: 1.2656s/iter; left time: 41370.8477s
+	iters: 200, epoch: 2 | loss: 0.6519114
+	speed: 0.1052s/iter; left time: 3428.1379s
+	iters: 300, epoch: 2 | loss: 0.5584158
+	speed: 0.1033s/iter; left time: 3356.0764s
+	iters: 400, epoch: 2 | loss: 0.7711721
+	speed: 0.1091s/iter; left time: 3534.0665s
+	iters: 500, epoch: 2 | loss: 0.6980810
+	speed: 0.1065s/iter; left time: 3437.7979s
+	iters: 600, epoch: 2 | loss: 0.4196742
+	speed: 0.1069s/iter; left time: 3441.9254s
+	iters: 700, epoch: 2 | loss: 0.5468748
+	speed: 0.1029s/iter; left time: 3301.6522s
+	iters: 800, epoch: 2 | loss: 0.3949078
+	speed: 0.1019s/iter; left time: 3260.5758s
+	iters: 900, epoch: 2 | loss: 0.5529658
+	speed: 0.1085s/iter; left time: 3460.5960s
+	iters: 1000, epoch: 2 | loss: 0.4644653
+	speed: 0.1041s/iter; left time: 3309.8814s
+	iters: 1100, epoch: 2 | loss: 0.8677896
+	speed: 0.1058s/iter; left time: 3352.1697s
+	iters: 1200, epoch: 2 | loss: 0.5523065
+	speed: 0.1093s/iter; left time: 3451.8699s
+	iters: 1300, epoch: 2 | loss: 0.4875904
+	speed: 0.1019s/iter; left time: 3208.9011s
+	iters: 1400, epoch: 2 | loss: 0.4685279
+	speed: 0.1014s/iter; left time: 3183.2793s
+	iters: 1500, epoch: 2 | loss: 0.4727143
+	speed: 0.1050s/iter; left time: 3285.1297s
+	iters: 1600, epoch: 2 | loss: 0.5540354
+	speed: 0.1020s/iter; left time: 3182.3417s
+	iters: 1700, epoch: 2 | loss: 0.4127360
+	speed: 0.1072s/iter; left time: 3331.8145s
+	iters: 1800, epoch: 2 | loss: 0.2779454
+	speed: 0.1034s/iter; left time: 3204.2105s
+	iters: 1900, epoch: 2 | loss: 0.4636319
+	speed: 0.1056s/iter; left time: 3260.8887s
+	iters: 2000, epoch: 2 | loss: 0.6438556
+	speed: 0.1024s/iter; left time: 3152.9771s
+	iters: 2100, epoch: 2 | loss: 0.3936941
+	speed: 0.0981s/iter; left time: 3011.7205s
+	iters: 2200, epoch: 2 | loss: 0.4789650
+	speed: 0.1018s/iter; left time: 3113.9309s
+	iters: 2300, epoch: 2 | loss: 0.4257392
+	speed: 0.0986s/iter; left time: 3005.2388s
+Epoch: 2 cost time: 244.5414958000183
+
+
+Epoch: 2 | Train Loss: 0.5265723 Vali Loss: 0.8128107 Test Loss: 0.4178162 MAE Loss: 0.4336676
+Updating learning rate to 2.000000000000001e-06
+
+	iters: 100, epoch: 3 | loss: 0.3518659
+	speed: 1.1283s/iter; left time: 34239.8005s
+	iters: 200, epoch: 3 | loss: 0.3460785
+	speed: 0.1053s/iter; left time: 3184.0332s
+	iters: 300, epoch: 3 | loss: 0.6276672
+	speed: 0.1020s/iter; left time: 3074.4965s
+	iters: 400, epoch: 3 | loss: 0.7814900
+	speed: 0.1086s/iter; left time: 3264.1759s
+	iters: 500, epoch: 3 | loss: 0.4732453
+	speed: 0.1112s/iter; left time: 3331.4964s
+	iters: 600, epoch: 3 | loss: 0.4229313
+	speed: 0.1084s/iter; left time: 3235.3100s
+	iters: 700, epoch: 3 | loss: 0.4307457
+	speed: 0.1047s/iter; left time: 3115.0581s
+	iters: 800, epoch: 3 | loss: 0.5596020
+	speed: 0.1010s/iter; left time: 2995.1337s
+	iters: 900, epoch: 3 | loss: 0.4159977
+	speed: 0.1043s/iter; left time: 3080.7016s
+	iters: 1000, epoch: 3 | loss: 0.5621558
+	speed: 0.1030s/iter; left time: 3031.8614s
+	iters: 1100, epoch: 3 | loss: 0.4101131
+	speed: 0.1034s/iter; left time: 3035.2149s
+	iters: 1200, epoch: 3 | loss: 0.6821093
+	speed: 0.0998s/iter; left time: 2917.6144s
+	iters: 1300, epoch: 3 | loss: 0.3680306
+	speed: 0.0995s/iter; left time: 2900.6630s
+	iters: 1400, epoch: 3 | loss: 0.5391632
+	speed: 0.1033s/iter; left time: 3000.1728s
+	iters: 1500, epoch: 3 | loss: 0.4833745
+	speed: 0.1095s/iter; left time: 3168.8415s
+	iters: 1600, epoch: 3 | loss: 0.6921055
+	speed: 0.1019s/iter; left time: 2940.5696s
+	iters: 1700, epoch: 3 | loss: 0.3778436
+	speed: 0.1061s/iter; left time: 3050.2152s
+	iters: 1800, epoch: 3 | loss: 0.5043876
+	speed: 0.1046s/iter; left time: 2995.1364s
+	iters: 1900, epoch: 3 | loss: 0.7311897
+	speed: 0.1061s/iter; left time: 3028.6443s
+	iters: 2000, epoch: 3 | loss: 0.3494350
+	speed: 0.1026s/iter; left time: 2917.9244s
+	iters: 2100, epoch: 3 | loss: 0.3824093
+	speed: 0.1044s/iter; left time: 2960.0712s
+	iters: 2200, epoch: 3 | loss: 0.5320549
+	speed: 0.0997s/iter; left time: 2816.1258s
+	iters: 2300, epoch: 3 | loss: 0.3140027
+	speed: 0.0975s/iter; left time: 2743.9689s
+Epoch: 3 cost time: 244.10509610176086
+
+
+Epoch: 3 | Train Loss: 0.4658984 Vali Loss: 0.7710399 Test Loss: 0.4066344 MAE Loss: 0.4280666
+Updating learning rate to 1.0000000000000006e-06
+
+	iters: 100, epoch: 4 | loss: 0.5939483
+	speed: 1.1392s/iter; left time: 31904.2263s
+	iters: 200, epoch: 4 | loss: 0.4865599
+	speed: 0.0994s/iter; left time: 2773.8183s
+	iters: 300, epoch: 4 | loss: 0.3787917
+	speed: 0.1031s/iter; left time: 2868.0533s
+	iters: 400, epoch: 4 | loss: 0.4838097
+	speed: 0.0954s/iter; left time: 2644.1218s
+	iters: 500, epoch: 4 | loss: 0.3754625
+	speed: 0.1041s/iter; left time: 2872.9500s
+	iters: 600, epoch: 4 | loss: 0.4612906
+	speed: 0.1051s/iter; left time: 2889.8117s
+	iters: 700, epoch: 4 | loss: 0.5102443
+	speed: 0.1049s/iter; left time: 2874.2046s
+	iters: 800, epoch: 4 | loss: 0.3576000
+	speed: 0.1008s/iter; left time: 2752.9975s
+	iters: 900, epoch: 4 | loss: 0.4715425
+	speed: 0.1024s/iter; left time: 2784.9351s
+	iters: 1000, epoch: 4 | loss: 0.5978377
+	speed: 0.1011s/iter; left time: 2739.9029s
+	iters: 1100, epoch: 4 | loss: 0.4484931
+	speed: 0.1026s/iter; left time: 2771.4694s
+	iters: 1200, epoch: 4 | loss: 0.2585601
+	speed: 0.1035s/iter; left time: 2784.4905s
+	iters: 1300, epoch: 4 | loss: 0.3353782
+	speed: 0.0998s/iter; left time: 2675.7345s
+	iters: 1400, epoch: 4 | loss: 0.3882701
+	speed: 0.1023s/iter; left time: 2732.9761s
+	iters: 1500, epoch: 4 | loss: 0.3661394
+	speed: 0.0993s/iter; left time: 2641.0817s
+	iters: 1600, epoch: 4 | loss: 0.4062046
+	speed: 0.1019s/iter; left time: 2700.9628s
+	iters: 1700, epoch: 4 | loss: 0.3746511
+	speed: 0.1004s/iter; left time: 2652.1357s
+	iters: 1800, epoch: 4 | loss: 0.4367489
+	speed: 0.1082s/iter; left time: 2847.4924s
+	iters: 1900, epoch: 4 | loss: 0.3720914
+	speed: 0.1043s/iter; left time: 2734.4483s
+	iters: 2000, epoch: 4 | loss: 0.3626372
+	speed: 0.0974s/iter; left time: 2541.5475s
+	iters: 2100, epoch: 4 | loss: 0.5141798
+	speed: 0.1057s/iter; left time: 2748.9868s
+	iters: 2200, epoch: 4 | loss: 0.4000644
+	speed: 0.1093s/iter; left time: 2830.6119s
+	iters: 2300, epoch: 4 | loss: 0.3458841
+	speed: 0.1047s/iter; left time: 2702.1563s
+Epoch: 4 cost time: 241.87551379203796
+
+
+Epoch: 4 | Train Loss: 0.4465571 Vali Loss: 0.7562347 Test Loss: 0.4001917 MAE Loss: 0.4233424
+Updating learning rate to 5.000000000000003e-07
+
+	iters: 100, epoch: 5 | loss: 0.3380964
+	speed: 1.1369s/iter; left time: 29175.7897s
+	iters: 200, epoch: 5 | loss: 0.4065959
+	speed: 0.1046s/iter; left time: 2673.6402s
+	iters: 300, epoch: 5 | loss: 0.3145591
+	speed: 0.1052s/iter; left time: 2678.2680s
+	iters: 400, epoch: 5 | loss: 0.4161206
+	speed: 0.1064s/iter; left time: 2698.6507s
+	iters: 500, epoch: 5 | loss: 0.2798017
+	speed: 0.1045s/iter; left time: 2641.1517s
+	iters: 600, epoch: 5 | loss: 0.3586612
+	speed: 0.1080s/iter; left time: 2718.7464s
+	iters: 700, epoch: 5 | loss: 0.4363430
+	speed: 0.0992s/iter; left time: 2485.9302s
+	iters: 800, epoch: 5 | loss: 0.3860358
+	speed: 0.0997s/iter; left time: 2488.8757s
+	iters: 900, epoch: 5 | loss: 0.5372088
+	speed: 0.0963s/iter; left time: 2394.6144s
+	iters: 1000, epoch: 5 | loss: 0.4411963
+	speed: 0.1107s/iter; left time: 2740.7150s
+	iters: 1100, epoch: 5 | loss: 0.2459951
+	speed: 0.0995s/iter; left time: 2455.1515s
+	iters: 1200, epoch: 5 | loss: 0.6303662
+	speed: 0.1033s/iter; left time: 2536.4194s
+	iters: 1300, epoch: 5 | loss: 0.4457196
+	speed: 0.1058s/iter; left time: 2587.2733s
+	iters: 1400, epoch: 5 | loss: 0.3388313
+	speed: 0.1029s/iter; left time: 2506.2751s
+	iters: 1500, epoch: 5 | loss: 0.4772517
+	speed: 0.1026s/iter; left time: 2488.2617s
+	iters: 1600, epoch: 5 | loss: 0.3852575
+	speed: 0.1016s/iter; left time: 2454.9818s
+	iters: 1700, epoch: 5 | loss: 0.4005530
+	speed: 0.0999s/iter; left time: 2403.7791s
+	iters: 1800, epoch: 5 | loss: 0.3876082
+	speed: 0.1065s/iter; left time: 2551.2420s
+	iters: 1900, epoch: 5 | loss: 0.3529872
+	speed: 0.1092s/iter; left time: 2606.9117s
+	iters: 2000, epoch: 5 | loss: 0.4426446
+	speed: 0.0977s/iter; left time: 2320.9810s
+	iters: 2100, epoch: 5 | loss: 0.5825661
+	speed: 0.1003s/iter; left time: 2374.0225s
+	iters: 2200, epoch: 5 | loss: 0.5459948
+	speed: 0.0999s/iter; left time: 2354.0309s
+	iters: 2300, epoch: 5 | loss: 0.3306475
+	speed: 0.1061s/iter; left time: 2490.5003s
+Epoch: 5 cost time: 242.92781519889832
+
+
+Epoch: 5 | Train Loss: 0.4379787 Vali Loss: 0.7505965 Test Loss: 0.3979838 MAE Loss: 0.4215947
+Updating learning rate to 2.5000000000000015e-07
+
+	iters: 100, epoch: 6 | loss: 0.4907936
+	speed: 1.1366s/iter; left time: 26507.0155s
+	iters: 200, epoch: 6 | loss: 0.4092606
+	speed: 0.1012s/iter; left time: 2350.7688s
+	iters: 300, epoch: 6 | loss: 0.4242199
+	speed: 0.1082s/iter; left time: 2502.3865s
+	iters: 400, epoch: 6 | loss: 0.5295670
+	speed: 0.1012s/iter; left time: 2330.4331s
+	iters: 500, epoch: 6 | loss: 0.2871408
+	speed: 0.0994s/iter; left time: 2277.7029s
+	iters: 600, epoch: 6 | loss: 0.3841542
+	speed: 0.1018s/iter; left time: 2322.4652s
+	iters: 700, epoch: 6 | loss: 0.5122002
+	speed: 0.1032s/iter; left time: 2345.4739s
+	iters: 800, epoch: 6 | loss: 0.5213000
+	speed: 0.1001s/iter; left time: 2264.6505s
+	iters: 900, epoch: 6 | loss: 0.4164762
+	speed: 0.1088s/iter; left time: 2451.1518s
+	iters: 1000, epoch: 6 | loss: 0.5440053
+	speed: 0.1028s/iter; left time: 2305.9806s
+	iters: 1100, epoch: 6 | loss: 0.3534570
+	speed: 0.1075s/iter; left time: 2399.7467s
+	iters: 1200, epoch: 6 | loss: 0.5249630
+	speed: 0.1025s/iter; left time: 2278.1838s
+	iters: 1300, epoch: 6 | loss: 0.4084973
+	speed: 0.1063s/iter; left time: 2351.7390s
+	iters: 1400, epoch: 6 | loss: 0.4440748
+	speed: 0.1032s/iter; left time: 2273.2084s
+	iters: 1500, epoch: 6 | loss: 0.5395198
+	speed: 0.0994s/iter; left time: 2179.0759s
+	iters: 1600, epoch: 6 | loss: 0.5503320
+	speed: 0.0987s/iter; left time: 2152.6769s
+	iters: 1700, epoch: 6 | loss: 0.3268894
+	speed: 0.1006s/iter; left time: 2185.3207s
+	iters: 1800, epoch: 6 | loss: 0.4591676
+	speed: 0.1061s/iter; left time: 2294.2070s
+	iters: 1900, epoch: 6 | loss: 0.4057195
+	speed: 0.0979s/iter; left time: 2107.1713s
+	iters: 2000, epoch: 6 | loss: 0.2978570
+	speed: 0.1033s/iter; left time: 2211.9049s
+	iters: 2100, epoch: 6 | loss: 0.4749073
+	speed: 0.1009s/iter; left time: 2151.4800s
+	iters: 2200, epoch: 6 | loss: 0.5616958
+	speed: 0.1081s/iter; left time: 2293.1582s
+	iters: 2300, epoch: 6 | loss: 0.4282471
+	speed: 0.1039s/iter; left time: 2194.0546s
+Epoch: 6 cost time: 242.06299448013306
+
+
+Epoch: 6 | Train Loss: 0.4338622 Vali Loss: 0.7460048 Test Loss: 0.3970918 MAE Loss: 0.4212720
+Updating learning rate to 1.2500000000000007e-07
+
+	iters: 100, epoch: 7 | loss: 0.4052308
+	speed: 1.1281s/iter; left time: 23667.3125s
+	iters: 200, epoch: 7 | loss: 0.5326486
+	speed: 0.1155s/iter; left time: 2412.1961s
+	iters: 300, epoch: 7 | loss: 0.3045318
+	speed: 0.1062s/iter; left time: 2205.7022s
+	iters: 400, epoch: 7 | loss: 0.5838214
+	speed: 0.0995s/iter; left time: 2057.2966s
+	iters: 500, epoch: 7 | loss: 0.4611595
+	speed: 0.1069s/iter; left time: 2198.9689s
+	iters: 600, epoch: 7 | loss: 0.3837678
+	speed: 0.1059s/iter; left time: 2168.9750s
+	iters: 700, epoch: 7 | loss: 0.5531042
+	speed: 0.1042s/iter; left time: 2123.4230s
+	iters: 800, epoch: 7 | loss: 0.4277440
+	speed: 0.0991s/iter; left time: 2008.9224s
+	iters: 900, epoch: 7 | loss: 0.3208043
+	speed: 0.1070s/iter; left time: 2159.0623s
+	iters: 1000, epoch: 7 | loss: 0.3830267
+	speed: 0.0990s/iter; left time: 1988.0034s
+	iters: 1100, epoch: 7 | loss: 0.3867369
+	speed: 0.0974s/iter; left time: 1945.1523s
+	iters: 1200, epoch: 7 | loss: 0.4335968
+	speed: 0.0995s/iter; left time: 1977.5497s
+	iters: 1300, epoch: 7 | loss: 0.3150143
+	speed: 0.1004s/iter; left time: 1986.4695s
+	iters: 1400, epoch: 7 | loss: 0.4127572
+	speed: 0.1102s/iter; left time: 2168.1081s
+	iters: 1500, epoch: 7 | loss: 0.3896121
+	speed: 0.1058s/iter; left time: 2071.0090s
+	iters: 1600, epoch: 7 | loss: 0.3479165
+	speed: 0.1010s/iter; left time: 1966.7685s
+	iters: 1700, epoch: 7 | loss: 0.3893494
+	speed: 0.0996s/iter; left time: 1930.6855s
+	iters: 1800, epoch: 7 | loss: 0.3850869
+	speed: 0.1030s/iter; left time: 1985.3539s
+	iters: 1900, epoch: 7 | loss: 0.3817942
+	speed: 0.1016s/iter; left time: 1949.3103s
+	iters: 2000, epoch: 7 | loss: 0.8113953
+	speed: 0.1050s/iter; left time: 2003.5363s
+	iters: 2100, epoch: 7 | loss: 0.3905384
+	speed: 0.1029s/iter; left time: 1952.4723s
+	iters: 2200, epoch: 7 | loss: 0.4174944
+	speed: 0.1012s/iter; left time: 1910.9051s
+	iters: 2300, epoch: 7 | loss: 0.3484571
+	speed: 0.0986s/iter; left time: 1851.6926s
+Epoch: 7 cost time: 241.98254346847534
+
+
+Epoch: 7 | Train Loss: 0.4317463 Vali Loss: 0.7464098 Test Loss: 0.3975456 MAE Loss: 0.4215651
+EarlyStopping counter: 1 out of 10
+Updating learning rate to 6.250000000000004e-08
+
+	iters: 100, epoch: 8 | loss: 0.3921376
+	speed: 1.0890s/iter; left time: 20295.6889s
+	iters: 200, epoch: 8 | loss: 0.4082598
+	speed: 0.0969s/iter; left time: 1796.6180s
+	iters: 300, epoch: 8 | loss: 0.3043769
+	speed: 0.1004s/iter; left time: 1850.2610s
+	iters: 400, epoch: 8 | loss: 0.4804837
+	speed: 0.0964s/iter; left time: 1768.1594s
+	iters: 500, epoch: 8 | loss: 0.3971610
+	speed: 0.1014s/iter; left time: 1849.4361s
+	iters: 600, epoch: 8 | loss: 0.4165835
+	speed: 0.1057s/iter; left time: 1916.6869s
+	iters: 700, epoch: 8 | loss: 0.7467001
+	speed: 0.1028s/iter; left time: 1855.0216s
+	iters: 800, epoch: 8 | loss: 0.4783601
+	speed: 0.0986s/iter; left time: 1768.9130s
+	iters: 900, epoch: 8 | loss: 0.3596822
+	speed: 0.0989s/iter; left time: 1764.6766s
+	iters: 1000, epoch: 8 | loss: 0.6681093
+	speed: 0.0980s/iter; left time: 1738.7184s
+	iters: 1100, epoch: 8 | loss: 0.3149779
+	speed: 0.0970s/iter; left time: 1709.9926s
+	iters: 1200, epoch: 8 | loss: 0.4572793
+	speed: 0.1034s/iter; left time: 1813.8406s
+	iters: 1300, epoch: 8 | loss: 0.5855989
+	speed: 0.0960s/iter; left time: 1674.7832s
+	iters: 1400, epoch: 8 | loss: 0.2437212
+	speed: 0.1032s/iter; left time: 1789.5949s
+	iters: 1500, epoch: 8 | loss: 0.3927747
+	speed: 0.0988s/iter; left time: 1702.6581s
+	iters: 1600, epoch: 8 | loss: 0.4088732
+	speed: 0.1015s/iter; left time: 1740.0867s
+	iters: 1700, epoch: 8 | loss: 0.4741839
+	speed: 0.0981s/iter; left time: 1671.5598s
+	iters: 1800, epoch: 8 | loss: 0.3751734
+	speed: 0.1012s/iter; left time: 1714.6622s
+	iters: 1900, epoch: 8 | loss: 0.4941438
+	speed: 0.0991s/iter; left time: 1668.7355s
+	iters: 2000, epoch: 8 | loss: 0.3889926
+	speed: 0.1006s/iter; left time: 1684.1757s
+	iters: 2100, epoch: 8 | loss: 0.5205246
+	speed: 0.0987s/iter; left time: 1642.0479s
+	iters: 2200, epoch: 8 | loss: 0.3127770
+	speed: 0.1003s/iter; left time: 1658.5459s
+	iters: 2300, epoch: 8 | loss: 0.4366905
+	speed: 0.1060s/iter; left time: 1742.0826s
+Epoch: 8 cost time: 235.84373450279236
+
+
+Epoch: 8 | Train Loss: 0.4309645 Vali Loss: 0.7443291 Test Loss: 0.3965712 MAE Loss: 0.4209171
+Updating learning rate to 3.125000000000002e-08
+
+	iters: 100, epoch: 9 | loss: 0.4165657
+	speed: 1.1225s/iter; left time: 18290.7835s
+	iters: 200, epoch: 9 | loss: 0.4919311
+	speed: 0.1064s/iter; left time: 1722.7325s
+	iters: 300, epoch: 9 | loss: 0.3902045
+	speed: 0.0974s/iter; left time: 1568.1519s
+	iters: 400, epoch: 9 | loss: 0.2886392
+	speed: 0.0983s/iter; left time: 1571.9371s
+	iters: 500, epoch: 9 | loss: 0.4091740
+	speed: 0.1027s/iter; left time: 1632.5591s
+	iters: 600, epoch: 9 | loss: 0.4955307
+	speed: 0.1078s/iter; left time: 1702.4100s
+	iters: 700, epoch: 9 | loss: 0.4169353
+	speed: 0.1034s/iter; left time: 1623.2014s
+	iters: 800, epoch: 9 | loss: 0.5644520
+	speed: 0.0950s/iter; left time: 1481.8406s
+	iters: 900, epoch: 9 | loss: 0.3619299
+	speed: 0.1042s/iter; left time: 1614.5292s
+	iters: 1000, epoch: 9 | loss: 0.4347128
+	speed: 0.0964s/iter; left time: 1483.6086s
+	iters: 1100, epoch: 9 | loss: 0.4568498
+	speed: 0.0958s/iter; left time: 1465.0016s
+	iters: 1200, epoch: 9 | loss: 0.4732336
+	speed: 0.0997s/iter; left time: 1515.5645s
+	iters: 1300, epoch: 9 | loss: 0.3560514
+	speed: 0.1007s/iter; left time: 1520.2745s
+	iters: 1400, epoch: 9 | loss: 0.4375253
+	speed: 0.1024s/iter; left time: 1536.1140s
+	iters: 1500, epoch: 9 | loss: 0.6256581
+	speed: 0.0986s/iter; left time: 1467.9246s
+	iters: 1600, epoch: 9 | loss: 0.3829695
+	speed: 0.1037s/iter; left time: 1534.0096s
+	iters: 1700, epoch: 9 | loss: 0.3476625
+	speed: 0.1042s/iter; left time: 1531.1775s
+	iters: 1800, epoch: 9 | loss: 0.6311262
+	speed: 0.0982s/iter; left time: 1433.1598s
+	iters: 1900, epoch: 9 | loss: 0.5969608
+	speed: 0.0977s/iter; left time: 1415.9250s
+	iters: 2000, epoch: 9 | loss: 0.3461772
+	speed: 0.1031s/iter; left time: 1484.6598s
+	iters: 2100, epoch: 9 | loss: 0.3484479
+	speed: 0.1052s/iter; left time: 1503.2517s
+	iters: 2200, epoch: 9 | loss: 0.4636656
+	speed: 0.1031s/iter; left time: 1463.0633s
+	iters: 2300, epoch: 9 | loss: 0.2992245
+	speed: 0.0991s/iter; left time: 1397.0722s
+Epoch: 9 cost time: 237.59503865242004
+
+
+Epoch: 9 | Train Loss: 0.4300685 Vali Loss: 0.7443660 Test Loss: 0.3967605 MAE Loss: 0.4210950
+EarlyStopping counter: 1 out of 10
+Updating learning rate to 1.562500000000001e-08
+
+	iters: 100, epoch: 10 | loss: 0.3979482
+	speed: 1.0996s/iter; left time: 15343.0876s
+	iters: 200, epoch: 10 | loss: 0.3948392
+	speed: 0.1040s/iter; left time: 1440.9870s
+	iters: 300, epoch: 10 | loss: 0.3781082
+	speed: 0.1031s/iter; left time: 1418.5916s
+	iters: 400, epoch: 10 | loss: 0.3203634
+	speed: 0.1039s/iter; left time: 1418.0705s
+	iters: 500, epoch: 10 | loss: 0.4606263
+	speed: 0.1021s/iter; left time: 1383.5439s
+	iters: 600, epoch: 10 | loss: 0.5921936
+	speed: 0.1032s/iter; left time: 1387.7941s
+	iters: 700, epoch: 10 | loss: 0.4075513
+	speed: 0.1026s/iter; left time: 1369.6881s
+	iters: 800, epoch: 10 | loss: 0.4439237
+	speed: 0.1036s/iter; left time: 1372.6842s
+	iters: 900, epoch: 10 | loss: 0.2986614
+	speed: 0.0994s/iter; left time: 1307.0604s
+	iters: 1000, epoch: 10 | loss: 0.4538788
+	speed: 0.1045s/iter; left time: 1364.4149s
+	iters: 1100, epoch: 10 | loss: 0.4238571
+	speed: 0.1006s/iter; left time: 1303.2928s
+	iters: 1200, epoch: 10 | loss: 0.4008416
+	speed: 0.1008s/iter; left time: 1296.0555s
+	iters: 1300, epoch: 10 | loss: 0.3714036
+	speed: 0.1029s/iter; left time: 1311.8312s
+	iters: 1400, epoch: 10 | loss: 0.6639107
+	speed: 0.1005s/iter; left time: 1271.0528s
+	iters: 1500, epoch: 10 | loss: 0.6676991
+	speed: 0.0985s/iter; left time: 1236.9889s
+	iters: 1600, epoch: 10 | loss: 0.6093802
+	speed: 0.1098s/iter; left time: 1367.9525s
+	iters: 1700, epoch: 10 | loss: 0.4698211
+	speed: 0.1008s/iter; left time: 1244.6629s
+	iters: 1800, epoch: 10 | loss: 0.3574193
+	speed: 0.1019s/iter; left time: 1249.0277s
+	iters: 1900, epoch: 10 | loss: 0.2993237
+	speed: 0.1049s/iter; left time: 1274.6108s
+	iters: 2000, epoch: 10 | loss: 0.4858617
+	speed: 0.0973s/iter; left time: 1173.2801s
+	iters: 2100, epoch: 10 | loss: 0.4231011
+	speed: 0.1002s/iter; left time: 1198.2438s
+	iters: 2200, epoch: 10 | loss: 0.5018609
+	speed: 0.1028s/iter; left time: 1218.1692s
+	iters: 2300, epoch: 10 | loss: 0.5390826
+	speed: 0.1103s/iter; left time: 1296.6978s
+Epoch: 10 cost time: 241.50283670425415
+
+
+Epoch: 10 | Train Loss: 0.4300951 Vali Loss: 0.7441431 Test Loss: 0.3966850 MAE Loss: 0.4210564
+Updating learning rate to 7.812500000000005e-09
+
+	iters: 100, epoch: 11 | loss: 0.2926979
+	speed: 1.1026s/iter; left time: 12802.2144s
+	iters: 200, epoch: 11 | loss: 0.4030319
+	speed: 0.0997s/iter; left time: 1147.3335s
+	iters: 300, epoch: 11 | loss: 0.6527159
+	speed: 0.0998s/iter; left time: 1139.1990s
+	iters: 400, epoch: 11 | loss: 0.6001168
+	speed: 0.0984s/iter; left time: 1113.0666s
+	iters: 500, epoch: 11 | loss: 0.3255143
+	speed: 0.0946s/iter; left time: 1060.2440s
+	iters: 600, epoch: 11 | loss: 0.4775806
+	speed: 0.0984s/iter; left time: 1093.4682s
+	iters: 700, epoch: 11 | loss: 0.3598312
+	speed: 0.0955s/iter; left time: 1051.5797s
+	iters: 800, epoch: 11 | loss: 0.4359360
+	speed: 0.0969s/iter; left time: 1057.2200s
+	iters: 900, epoch: 11 | loss: 0.6208954
+	speed: 0.0965s/iter; left time: 1043.5053s
+	iters: 1000, epoch: 11 | loss: 0.6516477
+	speed: 0.1070s/iter; left time: 1145.8154s
+	iters: 1100, epoch: 11 | loss: 0.4183030
+	speed: 0.0934s/iter; left time: 991.5027s
+	iters: 1200, epoch: 11 | loss: 0.3910424
+	speed: 0.0987s/iter; left time: 1037.1858s
+	iters: 1300, epoch: 11 | loss: 0.4402498
+	speed: 0.1058s/iter; left time: 1101.4530s
+	iters: 1400, epoch: 11 | loss: 0.3312513
+	speed: 0.0988s/iter; left time: 1018.4053s
+	iters: 1500, epoch: 11 | loss: 0.4738852
+	speed: 0.0961s/iter; left time: 981.5356s
+	iters: 1600, epoch: 11 | loss: 0.5144864
+	speed: 0.0931s/iter; left time: 941.5665s
+	iters: 1700, epoch: 11 | loss: 0.3603412
+	speed: 0.0978s/iter; left time: 979.3288s
+	iters: 1800, epoch: 11 | loss: 0.5089090
+	speed: 0.0960s/iter; left time: 951.5835s
+	iters: 1900, epoch: 11 | loss: 0.4985304
+	speed: 0.0976s/iter; left time: 957.5817s
+	iters: 2000, epoch: 11 | loss: 0.6890668
+	speed: 0.0972s/iter; left time: 943.5202s
+	iters: 2100, epoch: 11 | loss: 0.5992470
+	speed: 0.0993s/iter; left time: 954.4360s
+	iters: 2200, epoch: 11 | loss: 0.2913184
+	speed: 0.1010s/iter; left time: 960.5905s
+	iters: 2300, epoch: 11 | loss: 0.5866776
+	speed: 0.1043s/iter; left time: 981.0987s
+Epoch: 11 cost time: 231.7403473854065
+
+
+Epoch: 11 | Train Loss: 0.4298430 Vali Loss: 0.7440186 Test Loss: 0.3967173 MAE Loss: 0.4211043
+Updating learning rate to 3.906250000000002e-09
+
+	iters: 100, epoch: 12 | loss: 0.3566245
+	speed: 1.0767s/iter; left time: 9979.6450s
+	iters: 200, epoch: 12 | loss: 0.7401655
+	speed: 0.1007s/iter; left time: 923.7742s
+	iters: 300, epoch: 12 | loss: 0.4300901
+	speed: 0.0966s/iter; left time: 875.8088s
+	iters: 400, epoch: 12 | loss: 0.5369725
+	speed: 0.1076s/iter; left time: 964.8008s
+	iters: 500, epoch: 12 | loss: 0.2943542
+	speed: 0.1006s/iter; left time: 892.2327s
+	iters: 600, epoch: 12 | loss: 0.3656612
+	speed: 0.0978s/iter; left time: 857.5960s
+	iters: 700, epoch: 12 | loss: 0.3429871
+	speed: 0.0993s/iter; left time: 860.7630s
+	iters: 800, epoch: 12 | loss: 0.4416358
+	speed: 0.1068s/iter; left time: 915.4027s
+	iters: 900, epoch: 12 | loss: 0.3915649
+	speed: 0.0988s/iter; left time: 836.9659s
+	iters: 1000, epoch: 12 | loss: 0.4378259
+	speed: 0.1007s/iter; left time: 843.1746s
+	iters: 1100, epoch: 12 | loss: 0.5594477
+	speed: 0.0967s/iter; left time: 799.8637s
+	iters: 1200, epoch: 12 | loss: 0.3348454
+	speed: 0.1028s/iter; left time: 839.6595s
+	iters: 1300, epoch: 12 | loss: 0.2432285
+	speed: 0.0971s/iter; left time: 783.7230s
+	iters: 1400, epoch: 12 | loss: 0.5480022
+	speed: 0.0984s/iter; left time: 784.1340s
+	iters: 1500, epoch: 12 | loss: 0.3380145
+	speed: 0.1000s/iter; left time: 786.8758s
+	iters: 1600, epoch: 12 | loss: 0.4061387
+	speed: 0.0976s/iter; left time: 758.1768s
+	iters: 1700, epoch: 12 | loss: 0.4120279
+	speed: 0.0993s/iter; left time: 761.6112s
+	iters: 1800, epoch: 12 | loss: 0.3144078
+	speed: 0.0978s/iter; left time: 740.4801s
+	iters: 1900, epoch: 12 | loss: 0.3641331
+	speed: 0.1018s/iter; left time: 760.4086s
+	iters: 2000, epoch: 12 | loss: 0.3709294
+	speed: 0.1025s/iter; left time: 755.4251s
+	iters: 2100, epoch: 12 | loss: 0.3695470
+	speed: 0.1007s/iter; left time: 732.1785s
+	iters: 2200, epoch: 12 | loss: 0.2582896
+	speed: 0.0974s/iter; left time: 698.2106s
+	iters: 2300, epoch: 12 | loss: 0.3302170
+	speed: 0.1007s/iter; left time: 711.8550s
+Epoch: 12 cost time: 234.96078777313232
+
+
+Epoch: 12 | Train Loss: 0.4300111 Vali Loss: 0.7439219 Test Loss: 0.3966725 MAE Loss: 0.4210682
+Updating learning rate to 1.953125000000001e-09
+
+	iters: 100, epoch: 13 | loss: 0.7840330
+	speed: 1.0879s/iter; left time: 7536.0101s
+	iters: 200, epoch: 13 | loss: 0.4660721
+	speed: 0.0978s/iter; left time: 667.8683s
+	iters: 300, epoch: 13 | loss: 0.4063259
+	speed: 0.1038s/iter; left time: 698.1606s
+	iters: 400, epoch: 13 | loss: 0.3480783
+	speed: 0.0991s/iter; left time: 656.7534s
+	iters: 500, epoch: 13 | loss: 0.4295599
+	speed: 0.0985s/iter; left time: 643.0216s
+	iters: 600, epoch: 13 | loss: 0.3123335
+	speed: 0.1000s/iter; left time: 642.4374s
+	iters: 700, epoch: 13 | loss: 0.4462271
+	speed: 0.1042s/iter; left time: 659.0388s
+	iters: 800, epoch: 13 | loss: 0.4821810
+	speed: 0.1016s/iter; left time: 632.8475s
+	iters: 900, epoch: 13 | loss: 0.6243806
+	speed: 0.1031s/iter; left time: 631.9185s
+	iters: 1000, epoch: 13 | loss: 0.3190487
+	speed: 0.0998s/iter; left time: 601.5627s
+	iters: 1100, epoch: 13 | loss: 0.5738567
+	speed: 0.1031s/iter; left time: 611.3379s
+	iters: 1200, epoch: 13 | loss: 0.3991064
+	speed: 0.1129s/iter; left time: 658.0969s
+	iters: 1300, epoch: 13 | loss: 0.3057141
+	speed: 0.1039s/iter; left time: 594.9431s
+	iters: 1400, epoch: 13 | loss: 0.3621922
+	speed: 0.0981s/iter; left time: 551.8067s
+	iters: 1500, epoch: 13 | loss: 0.5870089
+	speed: 0.1006s/iter; left time: 555.7608s
+	iters: 1600, epoch: 13 | loss: 0.5272081
+	speed: 0.0996s/iter; left time: 540.7007s
+	iters: 1700, epoch: 13 | loss: 0.5691551
+	speed: 0.0981s/iter; left time: 522.7925s
+	iters: 1800, epoch: 13 | loss: 0.4800021
+	speed: 0.0993s/iter; left time: 519.0986s
+	iters: 1900, epoch: 13 | loss: 0.3530816
+	speed: 0.0964s/iter; left time: 494.2583s
+	iters: 2000, epoch: 13 | loss: 0.7096027
+	speed: 0.1002s/iter; left time: 503.8773s
+	iters: 2100, epoch: 13 | loss: 0.3960109
+	speed: 0.0983s/iter; left time: 484.3881s
+	iters: 2200, epoch: 13 | loss: 0.3626242
+	speed: 0.1001s/iter; left time: 483.1348s
+	iters: 2300, epoch: 13 | loss: 0.3836451
+	speed: 0.0980s/iter; left time: 463.2159s
+Epoch: 13 cost time: 236.90433502197266
+
+
+Epoch: 13 | Train Loss: 0.4295811 Vali Loss: 0.7438175 Test Loss: 0.3966598 MAE Loss: 0.4210568
+Updating learning rate to 9.765625000000006e-10
+
+	iters: 100, epoch: 14 | loss: 0.5060099
+	speed: 1.0952s/iter; left time: 5021.3532s
+	iters: 200, epoch: 14 | loss: 0.4438124
+	speed: 0.0966s/iter; left time: 433.0483s
+	iters: 300, epoch: 14 | loss: 0.4002287
+	speed: 0.1018s/iter; left time: 446.5655s
+	iters: 400, epoch: 14 | loss: 0.5277176
+	speed: 0.1032s/iter; left time: 442.1761s
+	iters: 500, epoch: 14 | loss: 0.7566467
+	speed: 0.0984s/iter; left time: 411.9423s
+	iters: 600, epoch: 14 | loss: 0.2793923
+	speed: 0.1034s/iter; left time: 422.3816s
+	iters: 700, epoch: 14 | loss: 0.3001764
+	speed: 0.1039s/iter; left time: 414.2389s
+	iters: 800, epoch: 14 | loss: 0.2710099
+	speed: 0.1025s/iter; left time: 398.2657s
+	iters: 900, epoch: 14 | loss: 0.6088270
+	speed: 0.1059s/iter; left time: 400.6835s
+	iters: 1000, epoch: 14 | loss: 0.7722508
+	speed: 0.1055s/iter; left time: 388.5855s
+	iters: 1100, epoch: 14 | loss: 0.2793489
+	speed: 0.0974s/iter; left time: 349.2273s
+	iters: 1200, epoch: 14 | loss: 0.2959932
+	speed: 0.0956s/iter; left time: 333.1336s
+	iters: 1300, epoch: 14 | loss: 0.2690172
+	speed: 0.0979s/iter; left time: 331.3072s
+	iters: 1400, epoch: 14 | loss: 0.6824821
+	speed: 0.1020s/iter; left time: 335.1480s
+	iters: 1500, epoch: 14 | loss: 0.3565835
+	speed: 0.0968s/iter; left time: 308.3176s
+	iters: 1600, epoch: 14 | loss: 0.4963542
+	speed: 0.0968s/iter; left time: 298.6409s
+	iters: 1700, epoch: 14 | loss: 0.3408312
+	speed: 0.1014s/iter; left time: 302.6798s
+	iters: 1800, epoch: 14 | loss: 0.3481677
+	speed: 0.1022s/iter; left time: 294.8998s
+	iters: 1900, epoch: 14 | loss: 0.3873791
+	speed: 0.0988s/iter; left time: 275.2241s
+	iters: 2000, epoch: 14 | loss: 0.3678107
+	speed: 0.0971s/iter; left time: 260.5872s
+	iters: 2100, epoch: 14 | loss: 0.3684092
+	speed: 0.1025s/iter; left time: 264.9487s
+	iters: 2200, epoch: 14 | loss: 0.4268000
+	speed: 0.1007s/iter; left time: 250.1471s
+	iters: 2300, epoch: 14 | loss: 0.4365690
+	speed: 0.1000s/iter; left time: 238.4158s
+Epoch: 14 cost time: 235.87645149230957
+
+
+Epoch: 14 | Train Loss: 0.4294863 Vali Loss: 0.7438470 Test Loss: 0.3966488 MAE Loss: 0.4210480
+EarlyStopping counter: 1 out of 10
+Updating learning rate to 4.882812500000003e-10
+
+	iters: 100, epoch: 15 | loss: 0.7213481
+	speed: 1.0726s/iter; left time: 2405.9088s
+	iters: 200, epoch: 15 | loss: 0.6180376
+	speed: 0.0982s/iter; left time: 210.4281s
+	iters: 300, epoch: 15 | loss: 0.5729107
+	speed: 0.1000s/iter; left time: 204.3815s
+	iters: 400, epoch: 15 | loss: 0.4714802
+	speed: 0.1027s/iter; left time: 199.6404s
+	iters: 500, epoch: 15 | loss: 0.4353618
+	speed: 0.1012s/iter; left time: 186.5611s
+	iters: 600, epoch: 15 | loss: 0.4712182
+	speed: 0.0979s/iter; left time: 170.7054s
+	iters: 700, epoch: 15 | loss: 0.3522929
+	speed: 0.0928s/iter; left time: 152.4305s
+	iters: 800, epoch: 15 | loss: 0.5845518
+	speed: 0.1010s/iter; left time: 155.8678s
+	iters: 900, epoch: 15 | loss: 0.4449852
+	speed: 0.1003s/iter; left time: 144.7733s
+	iters: 1000, epoch: 15 | loss: 0.5527121
+	speed: 0.1040s/iter; left time: 139.6877s
+	iters: 1100, epoch: 15 | loss: 0.3684377
+	speed: 0.0983s/iter; left time: 122.2174s
+	iters: 1200, epoch: 15 | loss: 0.4750673
+	speed: 0.0967s/iter; left time: 110.5210s
+	iters: 1300, epoch: 15 | loss: 0.3532403
+	speed: 0.0995s/iter; left time: 103.8049s
+	iters: 1400, epoch: 15 | loss: 0.4691316
+	speed: 0.0965s/iter; left time: 91.0224s
+	iters: 1500, epoch: 15 | loss: 0.5284286
+	speed: 0.1031s/iter; left time: 86.8822s
+	iters: 1600, epoch: 15 | loss: 0.2732666
+	speed: 0.1026s/iter; left time: 76.2001s
+	iters: 1700, epoch: 15 | loss: 0.4130751
+	speed: 0.1020s/iter; left time: 65.6141s
+	iters: 1800, epoch: 15 | loss: 0.4013086
+	speed: 0.0987s/iter; left time: 53.5711s
+	iters: 1900, epoch: 15 | loss: 0.3442158
+	speed: 0.0990s/iter; left time: 43.8537s
+	iters: 2000, epoch: 15 | loss: 0.3539713
+	speed: 0.1038s/iter; left time: 35.5938s
+	iters: 2100, epoch: 15 | loss: 0.4185582
+	speed: 0.0996s/iter; left time: 24.2068s
+	iters: 2200, epoch: 15 | loss: 0.4048952
+	speed: 0.0983s/iter; left time: 14.0543s
+	iters: 2300, epoch: 15 | loss: 0.5560802
+	speed: 0.1018s/iter; left time: 4.3785s
+Epoch: 15 cost time: 234.72854614257812
+
+
+Epoch: 15 | Train Loss: 0.4299490 Vali Loss: 0.7439881 Test Loss: 0.3966459 MAE Loss: 0.4210484
+EarlyStopping counter: 2 out of 10
+Updating learning rate to 2.4414062500000014e-10
+success delete checkpoints
+[1765993110.978455] [8-GPU-Server:3578096:0]          ucp_ep.c:1755 UCX  DEBUG ep 0x7f199539a080 flags 0x91 cfg_index 1: close_nbx(flags=0x0)
+[1765993110.978539] [8-GPU-Server:3578096:0]           flush.c:387  UCX  DEBUG close ep 0x7f199539a080
+[1765993110.980701] [8-GPU-Server:3578096:0]           mpool.c:281  UCX  DEBUG mpool ucp_requests: allocated chunk 0x26869c64 of 41044 bytes with 128 elements
+[1765993110.980788] [8-GPU-Server:3578096:0]          ucp_ep.c:1289 UCX  DEBUG ep 0x7f199539a080: destroy
+[1765993110.980793] [8-GPU-Server:3578096:0]          ucp_ep.c:1607 UCX  DEBUG ep 0x7f199539a080: cleanup lanes
+[1765993110.980800] [8-GPU-Server:3578096:0]          ucp_ep.c:1618 UCX  DEBUG ep 0x7f199539a080: pending & destroy uct_ep[0]=0x34417150
+[1765993110.980837] [8-GPU-Server:3578096:0]          ucp_ep.c:1618 UCX  DEBUG ep 0x7f199539a080: pending & destroy uct_ep[1]=0x34417f80
+[1765993110.980861] [8-GPU-Server:3578096:0]          ucp_ep.c:1618 UCX  DEBUG ep 0x7f199539a080: pending & destroy uct_ep[2]=0x34417170
+[1765993110.980936] [8-GPU-Server:3578096:0]      ucp_worker.c:2912 UCX  DEBUG destroy worker 0x34357200
+[1765993110.980941] [8-GPU-Server:3578096:0]      ucp_worker.c:2898 UCX  DEBUG worker 0x34357200: destroy all endpoints
+[1765993110.980945] [8-GPU-Server:3578096:0]      ucp_worker.c:2898 UCX  DEBUG worker 0x34357200: destroy internal endpoints
+[1765993110.980953] [8-GPU-Server:3578096:0]          ucp_ep.c:1282 UCX  DEBUG ep 0x7f199539a000: purge uct_ep[0]=0x39aa6960
+[1765993110.980958] [8-GPU-Server:3578096:0]          ucp_ep.c:1289 UCX  DEBUG ep 0x7f199539a000: destroy
+[1765993110.980961] [8-GPU-Server:3578096:0]          ucp_ep.c:1607 UCX  DEBUG ep 0x7f199539a000: cleanup lanes
+[1765993110.980964] [8-GPU-Server:3578096:0]          ucp_ep.c:1618 UCX  DEBUG ep 0x7f199539a000: pending & destroy uct_ep[0]=0x39aa6960
+[1765993110.980971] [8-GPU-Server:3578096:0]          ucp_ep.c:1282 UCX  DEBUG ep 0x7f199539a040: purge uct_ep[0]=0x39aa69a0
+[1765993110.980975] [8-GPU-Server:3578096:0]          ucp_ep.c:1289 UCX  DEBUG ep 0x7f199539a040: destroy
+[1765993110.980978] [8-GPU-Server:3578096:0]          ucp_ep.c:1607 UCX  DEBUG ep 0x7f199539a040: cleanup lanes
+[1765993110.980981] [8-GPU-Server:3578096:0]          ucp_ep.c:1618 UCX  DEBUG ep 0x7f199539a040: pending & destroy uct_ep[0]=0x39aa69a0
+[1765993110.980993] [8-GPU-Server:3578096:0]      ucp_worker.c:243  UCX  DEBUG worker 0x34357200: remove active message handlers
+[1765993110.981652] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.981851] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.981941] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982025] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982105] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982185] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982264] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982344] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982422] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982499] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982576] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982675] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982755] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982836] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982913] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.982992] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983070] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983149] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983232] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983310] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983388] [8-GPU-Server:3578096:0]            topo.c:938  UCX  DEBUG /sys/class/net/eno1: PF sysfs path is '/sys/devices/pci0000:00/0000:00:1c.0/0000:01:00.0'
+[1765993110.983432] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983511] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983515] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983551] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983604] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983608] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983639] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983691] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983695] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983724] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983777] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983781] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983811] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983864] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983868] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983897] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.983952] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.983956] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.983986] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984050] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984053] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984084] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984138] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984142] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984171] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984223] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984227] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984256] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984307] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984311] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984340] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984395] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984398] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984429] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984481] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984485] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984514] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984566] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984570] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984600] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984662] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984667] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984698] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984751] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984754] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984785] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984838] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984842] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984874] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.984928] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.984932] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.984966] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.985030] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.985035] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.985075] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.985136] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.985141] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.985177] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.985238] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.985242] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.985282] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of eth0 is UNKNOWN, assuming 100 Mbps
+[1765993110.985339] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/eth0: sysfs path undetected
+[1765993110.985343] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG eth0: pci bandwidth undetected, using maximal value
+[1765993110.985428] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985437] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985497] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985502] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985537] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985543] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985585] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985589] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985619] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985625] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985664] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985668] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985700] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985706] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985744] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985748] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985776] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985782] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985820] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985824] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985853] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985868] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985908] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985912] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.985941] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.985947] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.985984] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.985988] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986015] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986021] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986058] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986062] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986090] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986096] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986136] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986140] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986169] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986175] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986213] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986217] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986245] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986251] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986290] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986293] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986321] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986327] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986366] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986370] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986398] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986404] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986442] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986446] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986475] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986485] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986523] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986527] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986555] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986561] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986599] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986603] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986630] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986636] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986676] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986680] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986708] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986713] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986751] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986755] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986782] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986788] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986826] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986829] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986856] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986862] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986899] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986903] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.986930] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.986936] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.986973] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.986977] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.987004] [8-GPU-Server:3578096:0]            sock.c:90   UCX  DEBUG ioctl(req=35142, ifr_name=lo) failed: Operation not supported
+[1765993110.987010] [8-GPU-Server:3578096:0]         tcp_net.c:61   UCX  DEBUG speed of lo is UNKNOWN, assuming 100 Mbps
+[1765993110.987047] [8-GPU-Server:3578096:0]            topo.c:935  UCX  DEBUG /sys/class/net/lo: sysfs path undetected
+[1765993110.987050] [8-GPU-Server:3578096:0]            topo.c:888  UCX  DEBUG lo: pci bandwidth undetected, using maximal value
+[1765993110.987183] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_reg_bufs destroyed
+[1765993110.987193] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_am_bufs destroyed
+[1765993110.987197] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_am_bufs destroyed
+[1765993110.987200] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_am_bufs destroyed
+[1765993110.987204] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_rkeys destroyed
+[1765993110.987218] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool ucp_requests destroyed
+[1765993110.987239] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool self_msg_desc destroyed
+[1765993110.987389] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39ad6a60 [id=39 ref 1] ???() from hash
+[1765993110.987395] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39ad6a60 [id=39 ref 1] ???()
+[1765993110.987413] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39ad6a60 [id=39 ref 0] ???()
+[1765993110.987430] [8-GPU-Server:3578096:0]       tcp_iface.c:874  UCX  DEBUG tcp_iface 0x39ac1e00: destroying
+[1765993110.987458] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39ad6d40 [id=40 ref 1] ???() from hash
+[1765993110.987463] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39ad6d40 [id=40 ref 1] ???()
+[1765993110.987469] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39ad6d40 [id=40 ref 0] ???()
+[1765993110.987474] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_rx_buf_mp destroyed
+[1765993110.987479] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_tx_buf_mp destroyed
+[1765993110.987503] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a432f0 [id=41 ref 1] ???() from hash
+[1765993110.987507] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a432f0 [id=41 ref 1] ???()
+[1765993110.987515] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a432f0 [id=41 ref 0] ???()
+[1765993110.987520] [8-GPU-Server:3578096:0]       tcp_iface.c:874  UCX  DEBUG tcp_iface 0x39ac3410: destroying
+[1765993110.987524] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a860c0 [id=42 ref 1] ???() from hash
+[1765993110.987528] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a860c0 [id=42 ref 1] ???()
+[1765993110.987533] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a860c0 [id=42 ref 0] ???()
+[1765993110.987537] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_rx_buf_mp destroyed
+[1765993110.987541] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_tx_buf_mp destroyed
+[1765993110.987552] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39aaad80 [id=43 ref 1] ???() from hash
+[1765993110.987556] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39aaad80 [id=43 ref 1] ???()
+[1765993110.987561] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39aaad80 [id=43 ref 0] ???()
+[1765993110.987566] [8-GPU-Server:3578096:0]       tcp_iface.c:874  UCX  DEBUG tcp_iface 0x39abece0: destroying
+[1765993110.987569] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a863f0 [id=44 ref 1] ???() from hash
+[1765993110.987573] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a863f0 [id=44 ref 1] ???()
+[1765993110.987578] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a863f0 [id=44 ref 0] ???()
+[1765993110.987587] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_rx_buf_mp destroyed
+[1765993110.987604] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_tcp_iface_tx_buf_mp destroyed
+[1765993110.987632] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39aada20 [id=45 ref 1] ???() from hash
+[1765993110.987636] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39aada20 [id=45 ref 1] ???()
+[1765993110.987642] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39aada20 [id=45 ref 0] ???()
+[1765993110.988089] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool mm_recv_desc destroyed
+[1765993110.988138] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a455a0 [id=47 ref 1] ???() from hash
+[1765993110.988143] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a455a0 [id=47 ref 1] ???()
+[1765993110.988152] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a455a0 [id=47 ref 0] ???()
+[1765993110.989338] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool mm_recv_desc destroyed
+[1765993110.989426] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a62890 [id=49 ref 1] ???() from hash
+[1765993110.989432] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a62890 [id=49 ref 1] ???()
+[1765993110.989449] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a62890 [id=49 ref 0] ???()
+[1765993110.989465] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39a85d90 [id=50 ref 1] ???() from hash
+[1765993110.989469] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39a85d90 [id=50 ref 1] ???()
+[1765993110.989476] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39a85d90 [id=50 ref 0] ???()
+[1765993110.989499] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool uct_scopy_iface_tx_mp destroyed
+[1765993110.990758] [8-GPU-Server:3578096:0]           async.c:172  UCX  DEBUG removed async handler 0x39acffc0 [id=31 ref 1] ???() from hash
+[1765993110.990781] [8-GPU-Server:3578096:0]           async.c:575  UCX  DEBUG removing async handler 0x39acffc0 [id=31 ref 1] ???()
+[1765993110.991088] [8-GPU-Server:3578096:0]           async.c:187  UCX  DEBUG release async handler 0x39acffc0 [id=31 ref 0] ???()
+[1765993111.052074] [8-GPU-Server:3578096:0]         pgtable.c:618  UCX  DEBUG purge empty page table
+[1765993111.072531] [8-GPU-Server:3578096:0]           mpool.c:194  UCX  DEBUG mpool rcache_mp destroyed
