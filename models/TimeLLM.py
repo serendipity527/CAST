@@ -197,18 +197,27 @@ class Model(nn.Module):
                 use_freq_attention=bool(getattr(configs, 'use_freq_attention', 0)),
                 freq_attention_version=int(getattr(configs, 'freq_attention_version', 1)),
                 freq_attn_kernel_size=int(getattr(configs, 'freq_attn_kernel_size', 3)),
+                use_freq_embedding=bool(getattr(configs, 'use_freq_embedding', 0)),
+                freq_embed_init_method=getattr(configs, 'freq_embed_init_method', 'random'),
+                use_positional_encoding=bool(getattr(configs, 'use_positional_encoding', 0)),
+                pos_encoding_max_len=int(getattr(configs, 'pos_encoding_max_len', 5000)),
+                configs=configs,
             )
             print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
         elif self.wavelet_mode == 'haar' or self.use_haar_wavelet:
             # Haar 小波方案（Patch级别）
             self.patch_embedding = WaveletPatchEmbedding(
                 configs.d_model, self.patch_len, self.stride, configs.dropout,
-                use_soft_threshold=True)
+                use_soft_threshold=True,
+                use_positional_encoding=bool(getattr(configs, 'use_positional_encoding', 0)),
+                pos_encoding_max_len=int(getattr(configs, 'pos_encoding_max_len', 5000)))
             print("[TimeLLM] 使用 WaveletPatchEmbedding (Haar小波方案)")
         else:
             # 原版 Patch Embedding
             self.patch_embedding = PatchEmbedding(
-                configs.d_model, self.patch_len, self.stride, configs.dropout)
+                configs.d_model, self.patch_len, self.stride, configs.dropout,
+                use_positional_encoding=bool(getattr(configs, 'use_positional_encoding', 0)),
+                pos_encoding_max_len=int(getattr(configs, 'pos_encoding_max_len', 5000)))
             print("[TimeLLM] 使用 PatchEmbedding (原版)")
 
         self.word_embeddings = self.llm_model.get_input_embeddings().weight

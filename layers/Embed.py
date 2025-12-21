@@ -158,7 +158,7 @@ class ReplicationPad1d(nn.Module):
 
 
 class PatchEmbedding(nn.Module):
-    def __init__(self, d_model, patch_len, stride, dropout):
+    def __init__(self, d_model, patch_len, stride, dropout, use_positional_encoding=False, pos_encoding_max_len=5000):
         super(PatchEmbedding, self).__init__()
         # Patching
         self.patch_len = patch_len
@@ -168,8 +168,13 @@ class PatchEmbedding(nn.Module):
         # Backbone, Input encoding: projection of feature vectors onto a d-dim vector space
         self.value_embedding = TokenEmbedding(patch_len, d_model)
 
-        # Positional embedding
-        # self.position_embedding = PositionalEmbedding(d_model)
+        # Positional embedding (可选)
+        self.use_positional_encoding = use_positional_encoding
+        if use_positional_encoding:
+            self.position_embedding = PositionalEmbedding(d_model, max_len=pos_encoding_max_len)
+            print(f"[PatchEmbedding] 位置编码已启用 (max_len={pos_encoding_max_len})")
+        else:
+            self.position_embedding = None
 
         # Residual dropout
         self.dropout = nn.Dropout(dropout)
@@ -182,6 +187,9 @@ class PatchEmbedding(nn.Module):
         x = torch.reshape(x, (x.shape[0] * x.shape[1], x.shape[2], x.shape[3]))
         # Input encoding
         x = self.value_embedding(x)
+        # 添加位置编码（如果启用）
+        if self.use_positional_encoding:
+            x = x + self.position_embedding(x).to(x.device)
         return self.dropout(x), n_vars
 
 
@@ -202,6 +210,108 @@ class SoftThreshold(nn.Module):
         # tau 需要 broadcast 到 x 的形状
         tau = torch.abs(self.tau)  # 确保阈值为正
         return torch.sign(x) * torch.relu(torch.abs(x) - tau)
+
+
+class FrequencyEmbedding(nn.Module):
+    """
+    可学习的频段嵌入 (Frequency Embedding)
+    
+    为不同频段的 Patch 添加可学习的频段标识向量，帮助 LLM 区分：
+    - "这个 Patch 来自低频趋势" vs "这个 Patch 来自高频噪声"
+    
+    核心作用:
+    1. 身份识别：显式告诉 LLM 每个 Patch 的频段来源
+    2. 注意力引导：让 Self-Attention 更好地分配注意力
+       - 趋势 Patch 应该多关注过去的趋势 Patch
+       - 高频 Patch 应该关注局部的高频 Patch
+    3. 语义解耦：打破频段间的对称性，防止混淆
+    
+    Args:
+        d_model: Embedding 维度 (与 Patch Embedding 输出维度一致)
+        num_frequencies: 频段数量 (低频、中频、高频等)
+        init_method: 初始化方法 ('random', 'orthogonal', 'scaled')
+    
+    Input:
+        x: (B*N, num_patches, d_model) - Patch Embedding 输出
+        freq_idx: int - 频段索引 (0=低频, 1=中频, 2=高频, ...)
+    
+    Output:
+        (B*N, num_patches, d_model) - 加上频段标识后的表示
+    """
+    
+    def __init__(self, d_model, num_frequencies=3, init_method='random'):
+        super(FrequencyEmbedding, self).__init__()
+        
+        self.d_model = d_model
+        self.num_frequencies = num_frequencies
+        self.init_method = init_method
+        
+        # 为每个频段创建一个可学习的向量
+        self.freq_embeddings = nn.Parameter(
+            torch.empty(num_frequencies, d_model)
+        )
+        
+        # 初始化
+        self._init_embeddings()
+        
+        print("=" * 70)
+        print("[FrequencyEmbedding] 可学习的频段嵌入已启用")
+        print("=" * 70)
+        print(f"  ├─ Embedding 维度: {d_model}")
+        print(f"  ├─ 频段数量: {num_frequencies}")
+        print(f"  ├─ 初始化方法: {init_method}")
+        print(f"  ├─ 参数量: {num_frequencies * d_model:,}")
+        print(f"  └─ 作用: 显式标记频段身份，引导 LLM Self-Attention")
+        print("=" * 70)
+    
+    def _init_embeddings(self):
+        """初始化频段 Embedding"""
+        if self.init_method == 'random':
+            # 随机初始化（标准正态分布）
+            nn.init.normal_(self.freq_embeddings, mean=0.0, std=0.02)
+        
+        elif self.init_method == 'orthogonal':
+            # 正交初始化（让不同频段的向量尽量正交）
+            nn.init.orthogonal_(self.freq_embeddings)
+        
+        elif self.init_method == 'scaled':
+            # 分层初始化（低频用较大值，高频用较小值）
+            with torch.no_grad():
+                for i in range(self.num_frequencies):
+                    # 低频(i=0)权重最大，高频(i=n-1)权重最小
+                    scale = 1.0 / (i + 1)
+                    nn.init.normal_(self.freq_embeddings[i], mean=0.0, std=0.02 * scale)
+        
+        else:
+            raise ValueError(f"未知的初始化方法: {self.init_method}")
+    
+    def forward(self, x, freq_idx):
+        """
+        前向传播：为 Patch Embedding 加上频段标识
+        
+        Args:
+            x: (B*N, num_patches, d_model) - Patch Embedding 输出
+            freq_idx: int - 频段索引 (0=低频, 1=中频, 2=高频, ...)
+        
+        Returns:
+            (B*N, num_patches, d_model) - 加上频段标识后的表示
+        """
+        # 广播加法：每个 Patch 都加上对应频段的 Embedding
+        # freq_embeddings[freq_idx]: (d_model,) -> broadcast to (B*N, num_patches, d_model)
+        return x + self.freq_embeddings[freq_idx]
+    
+    def get_similarity_matrix(self):
+        """
+        计算不同频段 Embedding 的余弦相似度矩阵（用于可视化/调试）
+        
+        Returns:
+            sim_matrix: (num_frequencies, num_frequencies) - 余弦相似度矩阵
+        """
+        # 归一化
+        emb_norm = F.normalize(self.freq_embeddings, p=2, dim=-1)
+        # 计算余弦相似度
+        sim_matrix = torch.mm(emb_norm, emb_norm.t())
+        return sim_matrix
 
 
 class FrequencyChannelAttention(nn.Module):
@@ -627,7 +737,8 @@ class WaveletPatchEmbedding(nn.Module):
     分别投影后通过门控机制融合，保留显式的频域信息。
     """
 
-    def __init__(self, d_model, patch_len, stride, dropout, use_soft_threshold=False):
+    def __init__(self, d_model, patch_len, stride, dropout, use_soft_threshold=False, 
+                 use_positional_encoding=False, pos_encoding_max_len=5000):
         super(WaveletPatchEmbedding, self).__init__()
         # Patching 参数
         self.patch_len = patch_len
@@ -672,6 +783,14 @@ class WaveletPatchEmbedding(nn.Module):
             # 对小波域的高频分量应用软阈值
             # init_tau=0.1 是初始阈值，模型会自动学习最佳值
             self.soft_threshold = SoftThreshold(num_features=self.half_len, init_tau=0.1)
+        
+        # 位置编码 (可选)
+        self.use_positional_encoding = use_positional_encoding
+        self.pos_encoding_max_len = pos_encoding_max_len
+        if use_positional_encoding:
+            self.position_embedding = PositionalEmbedding(d_model, max_len=pos_encoding_max_len)
+        else:
+            self.position_embedding = None
 
         # 打印配置日志
         self._print_config()
@@ -693,6 +812,10 @@ class WaveletPatchEmbedding(nn.Module):
             print(f"  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)")
         else:
             print(f"  ├─ 软阈值去噪: ❌ 关闭")
+        if self.use_positional_encoding:
+            print(f"  ├─ 位置编码: ✅ 启用 (max_len={self.pos_encoding_max_len})")
+        else:
+            print(f"  ├─ 位置编码: ❌ 关闭")
         print(f"  └─ 输出 Dropout: p={self.dropout.p}")
         print("=" * 60)
 
@@ -756,6 +879,10 @@ class WaveletPatchEmbedding(nn.Module):
         gate_weight = self.gate(combined)  # (B*N, num_patches, d_model)
         # 加权融合：gate * 低频 + (1-gate) * 高频
         output = gate_weight * e_approx + (1 - gate_weight) * e_detail
+        
+        # Step 5: 添加位置编码（如果启用）
+        if self.use_positional_encoding:
+            output = output + self.position_embedding(output).to(output.device)
 
         return self.dropout(output), n_vars
 
@@ -855,7 +982,10 @@ class WISTPatchEmbedding(nn.Module):
                  use_soft_threshold=True, use_causal_conv=True,
                  pyramid_fusion=True, mf_dropout=0.3,
                  use_freq_attention=False, freq_attention_version=1,
-                 freq_attn_kernel_size=3):
+                 freq_attn_kernel_size=3,
+                 use_freq_embedding=False, freq_embed_init_method='random',
+                 use_positional_encoding=False, pos_encoding_max_len=5000,
+                 configs=None):
         super(WISTPatchEmbedding, self).__init__()
         
         # 基础参数
@@ -870,6 +1000,10 @@ class WISTPatchEmbedding(nn.Module):
         self.freq_attention_version = freq_attention_version  # 1=GAP版本, 2=1D Conv版本 (Patch-wise)
         self.freq_attn_kernel_size = freq_attn_kernel_size  # V2版本的卷积核大小
         
+        # 🆕 Frequency Embedding 支持
+        self.use_freq_embedding = use_freq_embedding
+        self.freq_embed_init_method = freq_embed_init_method
+        
         # 导入因果小波变换模块
         from layers.CausalWavelet import CausalSWT
         self.swt = CausalSWT(wavelet=wavelet_type, level=wavelet_level)
@@ -880,6 +1014,16 @@ class WISTPatchEmbedding(nn.Module):
         # ========== 频段投影层 ==========
         # 频段数量: level + 1 (1个低频 cA + level个高频 cD)
         self.num_bands = wavelet_level + 1
+        
+        # 🆕 频段 Embedding 层（可选）
+        if self.use_freq_embedding:
+            self.freq_embedding = FrequencyEmbedding(
+                d_model=d_model,
+                num_frequencies=self.num_bands,
+                init_method=self.freq_embed_init_method
+            )
+        else:
+            self.freq_embedding = None
         
         if self.pyramid_fusion:
             # 金字塔融合模式: 为每个频段创建独立的投影层
@@ -1037,6 +1181,14 @@ class WISTPatchEmbedding(nn.Module):
         self.hf_dropout_rate = hf_dropout
         self.mf_dropout_rate = mf_dropout
         
+        # 位置编码 (可选)
+        self.use_positional_encoding = use_positional_encoding
+        self.pos_encoding_max_len = pos_encoding_max_len
+        if use_positional_encoding:
+            self.position_embedding = PositionalEmbedding(d_model, max_len=pos_encoding_max_len)
+        else:
+            self.position_embedding = None
+        
         # 输出 Dropout
         self.dropout = nn.Dropout(dropout)
         
@@ -1054,6 +1206,14 @@ class WISTPatchEmbedding(nn.Module):
         print(f"  ├─ Patch 长度: {self.patch_len}")
         print(f"  ├─ Stride: {self.stride}")
         print(f"  ├─ 输出维度: {self.d_model}")
+        
+        # 🆕 频段 Embedding 信息
+        if self.use_freq_embedding:
+            print(f"  ├─ 频段 Embedding: ✅ 启用 ({self.freq_embed_init_method} 初始化)")
+            print(f"  │   └─ 作用: 显式标记频段身份，引导 LLM Self-Attention")
+        else:
+            print(f"  ├─ 频段 Embedding: ❌ 未启用")
+        
         if self.use_causal_conv:
             print(f"  ├─ 投影方式: ✅ 因果卷积 (CausalConv1d, kernel=3)")
         else:
@@ -1089,8 +1249,15 @@ class WISTPatchEmbedding(nn.Module):
         else:
             print(f"  ├─ 软阈值去噪: ❌ 关闭")
         
+        if self.use_positional_encoding:
+            print(f"  ├─ 位置编码: ✅ 启用 (max_len={self.pos_encoding_max_len})")
+        else:
+            print(f"  ├─ 位置编码: ❌ 关闭")
+        
         fusion_type = '注意力' if self.use_freq_attention else ('金字塔' if self.pyramid_fusion else '门控')
-        print(f"  └─ 特性: 全局因果小波分解 + 差异化处理 + {fusion_type}融合")
+        freq_emb_str = ' + 频段Embedding' if self.use_freq_embedding else ''
+        pos_emb_str = ' + 位置编码' if self.use_positional_encoding else ''
+        print(f"  └─ 特性: 全局因果小波分解 + 差异化处理 + {fusion_type}融合{freq_emb_str}{pos_emb_str}")
         print("=" * 70)
     
     def forward(self, x):
@@ -1152,6 +1319,11 @@ class WISTPatchEmbedding(nn.Module):
         e_high = self.high_freq_embedding(high_patches)
         e_high = self.hf_dropout(e_high)
         
+        # 🆕 加频段 Embedding（在融合之前）
+        if self.use_freq_embedding:
+            e_low = self.freq_embedding(e_low, freq_idx=0)   # 低频
+            e_high = self.freq_embedding(e_high, freq_idx=1)  # 高频
+        
         # ========== 融合机制 ==========
         if self.use_freq_attention:
             # 使用频率通道注意力 (Instance-wise 动态路由)
@@ -1161,6 +1333,10 @@ class WISTPatchEmbedding(nn.Module):
             combined = torch.cat([e_low, e_high], dim=-1)
             gate_weight = self.gate(combined)
             output = gate_weight * e_low + (1 - gate_weight) * e_high
+        
+        # 添加位置编码（如果启用）
+        if self.use_positional_encoding:
+            output = output + self.position_embedding(output).to(output.device)
         
         return self.dropout(output), n_vars
     
@@ -1210,6 +1386,10 @@ class WISTPatchEmbedding(nn.Module):
             # 投影
             e_band = embedding_layer(patches)  # (B*N, num_patches, d_model)
             
+            # 🆕 加频段 Embedding（在 Dropout 之前）
+            if self.use_freq_embedding:
+                e_band = self.freq_embedding(e_band, freq_idx=i)
+            
             # 对高频频段应用 Dropout
             e_band = self.band_dropouts[i](e_band)
             
@@ -1244,5 +1424,9 @@ class WISTPatchEmbedding(nn.Module):
                 # 融合: gate * 当前融合结果 + (1-gate) * 下一个频段
                 # 注意: 对于最后一个门控 (融合 cA)，gate 偏向低频，所以 (1-gate) 会更大
                 e_fused = gate_weight * e_fused + (1 - gate_weight) * e_next
+        
+        # 添加位置编码（如果启用）
+        if self.use_positional_encoding:
+            e_fused = e_fused + self.position_embedding(e_fused).to(e_fused.device)
         
         return self.dropout(e_fused), n_vars

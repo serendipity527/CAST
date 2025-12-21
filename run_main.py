@@ -112,6 +112,19 @@ parser.add_argument('--freq_attention_version', type=int, default=1,
 parser.add_argument('--freq_attn_kernel_size', type=int, default=3,
                     help='V2/V3版本的1D卷积核大小 (仅freq_attention_version=2或3时生效): 1/3/5/7, 控制局部上下文范围')
 
+# 频段 Embedding (Frequency Embedding) 配置
+parser.add_argument('--use_freq_embedding', type=int, default=0,
+                    help='是否启用可学习的频段Embedding: 0=关闭, 1=开启 (显式标记频段身份，引导LLM Self-Attention)')
+parser.add_argument('--freq_embed_init_method', type=str, default='random',
+                    choices=['random', 'orthogonal', 'scaled'],
+                    help='频段Embedding初始化方法: random=随机初始化, orthogonal=正交初始化, scaled=分层初始化')
+
+# 位置编码 (Positional Encoding) 配置
+parser.add_argument('--use_positional_encoding', type=int, default=0,
+                    help='是否启用位置编码: 0=关闭, 1=开启 (为Patch序列添加位置信息，帮助LLM理解时间顺序)')
+parser.add_argument('--pos_encoding_max_len', type=int, default=5000,
+                    help='位置编码的最大长度 (默认5000，应大于等于num_patches)')
+
 # 小波Prompt增强功能 (Wavelet-Enhanced Prompt)
 parser.add_argument('--use_wavelet_prompt', type=int, default=0,
                     help='是否启用小波特征增强的Prompt: 0=关闭(原版Prompt), 1=开启(集成小波频域特征)')

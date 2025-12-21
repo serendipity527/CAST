@@ -1,0 +1,36 @@
+HF_ENDPOINT=https://hf-mirror.com CUDA_VISIBLE_DEVICES=4 nohup python run_main.py \
+  --task_name long_term_forecast \
+  --is_training 1 \
+  --root_path ./dataset/ETT-small \
+  --data_path ETTh1.csv \
+  --model_id ETTh1_512_96 \
+  --model TimeLLM \
+  --data ETTh1 \
+  --features M \
+  --seq_len 512 \
+  --label_len 48 \
+  --pred_len 96 \
+  --factor 3 \
+  --enc_in 7 \
+  --dec_in 7 \
+  --c_out 7 \
+  --des 'Exp' \
+  --itr 1 \
+  --d_model 64 \
+  --d_ff 256 \
+  --batch_size 24 \
+  --learning_rate 0.0001 \
+  --llm_layers 6 \
+  --train_epochs 15 \
+  --llm_model GPT2 \
+  --llm_dim 768 \
+  --wavelet_mode=wist \
+  --wavelet_type=haar\
+  --wavelet_level=2 \
+  --hf_dropout=0.2 \
+  --mf_dropout=0.2 \
+  --use_freq_attention=1 \
+  --use_soft_threshold=1 \
+  --pyramid_fusion=1 \
+  --model_comment 'WIST-PE-haar-level2-pyramid-attention-v2' \
+  > WIST-PE-haar-level2-pyramid-attention-v2.log 2>&1 &
