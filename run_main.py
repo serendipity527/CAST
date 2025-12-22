@@ -190,6 +190,15 @@ parser.add_argument('--dual_proto_mlp_dropout', type=float, default=0.1,
 parser.add_argument('--use_full_vocab_split', type=int, default=0,
                     help='是否启用全词表切分模式 (0=关闭, 1=启用, 将整个词表切分成趋势桶和细节桶, 仅当use_dual_prototypes=1时有效, 与use_semantic_filtered_mapping互斥)')
 
+# 频率感知原型增强配置 (Frequency-Aware Prototype Enhancement)
+# 核心思想：P_trend = P_shared + B_trend, P_detail = P_shared + B_detail
+parser.add_argument('--use_freq_aware_prototypes', type=int, default=0,
+                    help='是否启用频率感知原型增强 (0=关闭, 1=启用, 使用共享原型库+可学习偏置, 仅当use_dual_prototypes=1时有效)')
+parser.add_argument('--shared_proto_size', type=int, default=800,
+                    help='共享原型库大小 (默认800, 仅当use_freq_aware_prototypes=1时有效, 如果与dual_proto_trend_tokens/detail_tokens不同, 会自动添加投影层)')
+parser.add_argument('--use_learnable_bias', type=int, default=1,
+                    help='是否使用可学习偏置 (0=关闭Baseline模式P_trend=P_detail=P_shared, 1=启用P_trend=P_shared+B_trend, 仅当use_freq_aware_prototypes=1时有效)')
+
 # 频率解耦输出头 (Tri-Band Decoupled Head) 配置
 parser.add_argument('--use_freq_decoupled_head', type=int, default=0,
                     help='是否启用三频带解耦输出头: 0=关闭(原版FlattenHead), 1=开启(TriBandDecoupledHead)')

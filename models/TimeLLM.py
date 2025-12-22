@@ -232,6 +232,17 @@ class Model(nn.Module):
         self.use_semantic_filtered_mapping = False  # 默认值，在 use_dual_prototypes 时可能被覆盖
         self.use_full_vocab_split = False  # 全词表切分模式（新功能）
         
+        # 频率感知的原型增强（Frequency-Aware Prototype Enhancement）
+        # 核心思想：P_trend = P_shared + B_trend, P_detail = P_shared + B_detail
+        self.use_freq_aware_prototypes = bool(getattr(configs, 'use_freq_aware_prototypes', 0))
+        self.use_learnable_bias = bool(getattr(configs, 'use_learnable_bias', True))  # 是否使用可学习偏置（默认True，False时B=0）
+        self.shared_proto_size = None  # 共享原型库大小，将在 use_dual_prototypes 时设置
+        self.shared_mapping = None  # 共享原型库映射层
+        self.trend_bias = None  # 趋势偏置
+        self.detail_bias = None  # 细节偏置
+        self.proto_projection_trend = None  # 原型投影层（当 shared_proto_size != num_trend_tokens 时）
+        self.proto_projection_detail = None  # 原型投影层（当 shared_proto_size != num_detail_tokens 时）
+        
         if self.use_dual_prototypes:
             # 分离原型模式：分别指定趋势原型和细节原型的数量
             self.num_trend_tokens = int(getattr(configs, 'dual_proto_trend_tokens', 1000))
@@ -275,10 +286,82 @@ class Model(nn.Module):
                 self.register_buffer('trend_vocab_indices', trend_vocab_indices)
                 self.register_buffer('detail_vocab_indices', detail_vocab_indices)
                 
-                # 线性映射层：从切分后的词数映射到原型数量（和原版TimeLLM一样）
-                # 输入: (num_trend_vocab, d_llm) -> 转置为 (d_llm, num_trend_vocab) -> Linear -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
-                self.trend_mapping = nn.Linear(len(trend_vocab_indices), self.num_trend_tokens)
-                self.detail_mapping = nn.Linear(len(detail_vocab_indices), self.num_detail_tokens)
+                # 频率感知原型增强：共享原型库 + 可学习偏置
+                if self.use_freq_aware_prototypes:
+                    # 共享原型库大小（默认使用较小的值，例如 800）
+                    self.shared_proto_size = int(getattr(configs, 'shared_proto_size', 800))
+                    
+                    # 共享原型库映射层：使用整个词表生成共享原型
+                    # 输入: (vocab_size, d_llm) -> 转置为 (d_llm, vocab_size) -> Linear -> (d_llm, shared_proto_size) -> 转置回 (shared_proto_size, d_llm)
+                    self.shared_mapping = nn.Linear(self.vocab_size, self.shared_proto_size)
+                    
+                    # 可学习偏置：趋势偏置和细节偏置
+                    # 形状：(shared_proto_size, d_llm)
+                    if self.use_learnable_bias:
+                        self.trend_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        self.detail_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        
+                        # 初始化偏置（小值初始化，避免破坏共享知识）
+                        nn.init.normal_(self.trend_bias, mean=0.0, std=0.01)
+                        nn.init.normal_(self.detail_bias, mean=0.0, std=0.01)
+                        bias_desc = "可学习偏置"
+                        bias_params = 2 * self.shared_proto_size * self.d_llm
+                    else:
+                        # Baseline模式：不使用可学习偏置，P_trend = P_shared, P_detail = P_shared
+                        self.trend_bias = None
+                        self.detail_bias = None
+                        bias_desc = "无偏置（Baseline模式，P_trend=P_detail=P_shared）"
+                        bias_params = 0
+                    
+                    # 如果共享原型库大小与目标原型数量不同，需要添加投影层
+                    if self.shared_proto_size != self.num_trend_tokens:
+                        self.proto_projection_trend = nn.Linear(self.shared_proto_size, self.num_trend_tokens)
+                    else:
+                        self.proto_projection_trend = None
+                    
+                    if self.shared_proto_size != self.num_detail_tokens:
+                        self.proto_projection_detail = nn.Linear(self.shared_proto_size, self.num_detail_tokens)
+                    else:
+                        self.proto_projection_detail = None
+                    
+                    # 不再使用独立的 trend_mapping 和 detail_mapping
+                    self.trend_mapping = None
+                    self.detail_mapping = None
+                    
+                    # 计算参数量
+                    shared_params = self.vocab_size * self.shared_proto_size
+                    # bias_params 已在前面根据 use_learnable_bias 计算
+                    proj_params = 0
+                    if self.proto_projection_trend is not None:
+                        proj_params += self.shared_proto_size * self.num_trend_tokens
+                    if self.proto_projection_detail is not None:
+                        proj_params += self.shared_proto_size * self.num_detail_tokens
+                    total_params = shared_params + bias_params + proj_params
+                    
+                    print("=" * 70)
+                    print("[TimeLLM] ✅ 启用频率感知原型增强（全词表切分模式）")
+                    print("=" * 70)
+                    print(f"  ├─ 共享原型库大小: {self.shared_proto_size}")
+                    print(f"  ├─ 趋势原型数量: {self.num_trend_tokens}")
+                    print(f"  ├─ 细节原型数量: {self.num_detail_tokens}")
+                    print(f"  ├─ 共享映射层: Linear({self.vocab_size:,} → {self.shared_proto_size})")
+                    print(f"  │   └─ 参数量: {shared_params:,} ({shared_params/1e6:.2f}M)")
+                    print(f"  ├─ {bias_desc}")
+                    if bias_params > 0:
+                        print(f"  │   └─ 参数量: {bias_params:,} ({bias_params/1e6:.2f}M)")
+                    if proj_params > 0:
+                        print(f"  ├─ 原型投影层: {proj_params:,} ({proj_params/1e6:.2f}M)")
+                    print(f"  ├─ 总参数量: {total_params:,} ({total_params/1e6:.2f}M)")
+                    if self.use_learnable_bias:
+                        print(f"  └─ 数据流: 词表 → 共享原型库(P_shared) → P_trend=P_shared+B_trend, P_detail=P_shared+B_detail → ReprogrammingLayer")
+                    else:
+                        print(f"  └─ 数据流: 词表 → 共享原型库(P_shared) → P_trend=P_detail=P_shared → ReprogrammingLayer")
+                    print("=" * 70)
+                else:
+                    # 原版模式：线性映射层：从切分后的词数映射到原型数量（和原版TimeLLM一样）
+                    # 输入: (num_trend_vocab, d_llm) -> 转置为 (d_llm, num_trend_vocab) -> Linear -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    self.trend_mapping = nn.Linear(len(trend_vocab_indices), self.num_trend_tokens)
+                    self.detail_mapping = nn.Linear(len(detail_vocab_indices), self.num_detail_tokens)
                 
                 self.trend_seed_embeddings = None
                 self.detail_seed_embeddings = None
@@ -326,30 +409,116 @@ class Model(nn.Module):
                 self.register_buffer('trend_seed_embeddings', trend_seed_embeddings)
                 self.register_buffer('detail_seed_embeddings', detail_seed_embeddings)
                 
-                # 映射层：从种子词数量映射到原型数量（策略一：MLP非线性映射）
-                # 输入: (num_seed_words, d_llm) -> 转置为 (d_llm, num_seed_words) -> MLP -> (d_llm, num_prototypes) -> 转置回 (num_prototypes, d_llm)
-                # 策略：使用 MLP(num_seed_words -> hidden_dim -> num_prototypes) 对转置后的矩阵进行非线性映射
-                # 优势：非线性激活（GELU）允许模型学习文本语义空间到时序语义空间的复杂映射
-                
-                # MLP配置参数
-                mlp_hidden_dim = int(getattr(configs, 'dual_proto_mlp_hidden_dim', 4096))
-                mlp_dropout = float(getattr(configs, 'dual_proto_mlp_dropout', 0.1))
-                
-                # 趋势映射：MLP with bottleneck expansion
-                self.trend_mapping = nn.Sequential(
-                    nn.Linear(len(trend_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
-                    nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
-                    nn.Dropout(mlp_dropout),                               # 防止过拟合
-                    nn.Linear(mlp_hidden_dim, self.num_trend_tokens)       # 降维：投影到原型空间
-                )
-                
-                # 细节映射：MLP with bottleneck expansion
-                self.detail_mapping = nn.Sequential(
-                    nn.Linear(len(detail_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
-                    nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
-                    nn.Dropout(mlp_dropout),                               # 防止过拟合
-                    nn.Linear(mlp_hidden_dim, self.num_detail_tokens)      # 降维：投影到原型空间
-                )
+                # 频率感知原型增强：共享原型库 + 可学习偏置
+                if self.use_freq_aware_prototypes:
+                    # 共享原型库大小（默认使用较小的值，例如 800）
+                    self.shared_proto_size = int(getattr(configs, 'shared_proto_size', 800))
+                    
+                    # MLP配置参数
+                    mlp_hidden_dim = int(getattr(configs, 'dual_proto_mlp_hidden_dim', 4096))
+                    mlp_dropout = float(getattr(configs, 'dual_proto_mlp_dropout', 0.1))
+                    
+                    # 共享原型库映射层：使用所有种子词生成共享原型
+                    # 将所有种子词拼接在一起
+                    all_seed_indices = torch.cat([trend_seed_indices, detail_seed_indices], dim=0)
+                    num_all_seed_words = len(all_seed_indices)
+                    
+                    # 共享映射：MLP with bottleneck expansion
+                    self.shared_mapping = nn.Sequential(
+                        nn.Linear(num_all_seed_words, mlp_hidden_dim),  # 升维：展开信息空间
+                        nn.GELU(),                                       # 非线性激活
+                        nn.Dropout(mlp_dropout),                         # 防止过拟合
+                        nn.Linear(mlp_hidden_dim, self.shared_proto_size)  # 降维：投影到共享原型空间
+                    )
+                    
+                    # 可学习偏置：趋势偏置和细节偏置
+                    # 形状：(shared_proto_size, d_llm)
+                    if self.use_learnable_bias:
+                        self.trend_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        self.detail_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        
+                        # 初始化偏置（小值初始化，避免破坏共享知识）
+                        nn.init.normal_(self.trend_bias, mean=0.0, std=0.01)
+                        nn.init.normal_(self.detail_bias, mean=0.0, std=0.01)
+                        bias_desc = "可学习偏置"
+                        bias_params = 2 * self.shared_proto_size * self.d_llm
+                    else:
+                        # Baseline模式：不使用可学习偏置，P_trend = P_shared, P_detail = P_shared
+                        self.trend_bias = None
+                        self.detail_bias = None
+                        bias_desc = "无偏置（Baseline模式，P_trend=P_detail=P_shared）"
+                        bias_params = 0
+                    
+                    # 如果共享原型库大小与目标原型数量不同，需要添加投影层
+                    if self.shared_proto_size != self.num_trend_tokens:
+                        self.proto_projection_trend = nn.Linear(self.shared_proto_size, self.num_trend_tokens)
+                    else:
+                        self.proto_projection_trend = None
+                    
+                    if self.shared_proto_size != self.num_detail_tokens:
+                        self.proto_projection_detail = nn.Linear(self.shared_proto_size, self.num_detail_tokens)
+                    else:
+                        self.proto_projection_detail = None
+                    
+                    # 不再使用独立的 trend_mapping 和 detail_mapping
+                    self.trend_mapping = None
+                    self.detail_mapping = None
+                    
+                    # 计算参数量
+                    shared_mlp_params = (num_all_seed_words * mlp_hidden_dim + 
+                                       mlp_hidden_dim * self.shared_proto_size)
+                    # bias_params 已在前面根据 use_learnable_bias 计算
+                    proj_params = 0
+                    if self.proto_projection_trend is not None:
+                        proj_params += self.shared_proto_size * self.num_trend_tokens
+                    if self.proto_projection_detail is not None:
+                        proj_params += self.shared_proto_size * self.num_detail_tokens
+                    total_params = shared_mlp_params + bias_params + proj_params
+                    
+                    print("=" * 70)
+                    print("[TimeLLM] ✅ 启用频率感知原型增强（语义筛选映射模式）")
+                    print("=" * 70)
+                    print(f"  ├─ 共享原型库大小: {self.shared_proto_size}")
+                    print(f"  ├─ 趋势原型数量: {self.num_trend_tokens}")
+                    print(f"  ├─ 细节原型数量: {self.num_detail_tokens}")
+                    print(f"  ├─ 共享映射层: MLP({num_all_seed_words} → {mlp_hidden_dim} → {self.shared_proto_size})")
+                    print(f"  │   └─ 参数量: {shared_mlp_params:,} ({shared_mlp_params/1e6:.2f}M)")
+                    print(f"  ├─ {bias_desc}")
+                    if bias_params > 0:
+                        print(f"  │   └─ 参数量: {bias_params:,} ({bias_params/1e6:.2f}M)")
+                    if proj_params > 0:
+                        print(f"  ├─ 原型投影层: {proj_params:,} ({proj_params/1e6:.2f}M)")
+                    print(f"  ├─ 总参数量: {total_params:,} ({total_params/1e6:.2f}M)")
+                    if self.use_learnable_bias:
+                        print(f"  └─ 数据流: 所有种子词 → 共享原型库(P_shared) → P_trend=P_shared+B_trend, P_detail=P_shared+B_detail → ReprogrammingLayer")
+                    else:
+                        print(f"  └─ 数据流: 所有种子词 → 共享原型库(P_shared) → P_trend=P_detail=P_shared → ReprogrammingLayer")
+                    print("=" * 70)
+                else:
+                    # 原版模式：映射层：从种子词数量映射到原型数量（策略一：MLP非线性映射）
+                    # 输入: (num_seed_words, d_llm) -> 转置为 (d_llm, num_seed_words) -> MLP -> (d_llm, num_prototypes) -> 转置回 (num_prototypes, d_llm)
+                    # 策略：使用 MLP(num_seed_words -> hidden_dim -> num_prototypes) 对转置后的矩阵进行非线性映射
+                    # 优势：非线性激活（GELU）允许模型学习文本语义空间到时序语义空间的复杂映射
+                    
+                    # MLP配置参数
+                    mlp_hidden_dim = int(getattr(configs, 'dual_proto_mlp_hidden_dim', 4096))
+                    mlp_dropout = float(getattr(configs, 'dual_proto_mlp_dropout', 0.1))
+                    
+                    # 趋势映射：MLP with bottleneck expansion
+                    self.trend_mapping = nn.Sequential(
+                        nn.Linear(len(trend_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
+                        nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
+                        nn.Dropout(mlp_dropout),                               # 防止过拟合
+                        nn.Linear(mlp_hidden_dim, self.num_trend_tokens)       # 降维：投影到原型空间
+                    )
+                    
+                    # 细节映射：MLP with bottleneck expansion
+                    self.detail_mapping = nn.Sequential(
+                        nn.Linear(len(detail_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
+                        nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
+                        nn.Dropout(mlp_dropout),                               # 防止过拟合
+                        nn.Linear(mlp_hidden_dim, self.num_detail_tokens)      # 降维：投影到原型空间
+                    )
                 
                 self.mapping_layer = None
                 
@@ -378,13 +547,86 @@ class Model(nn.Module):
                 print(f"  └─ 数据流: 种子词(Buffer) → MLP映射层(可学习) → 原型词 → ReprogrammingLayer")
                 print("=" * 70)
             else:
-                # 原版映射模式：使用整个词表
-                self.trend_mapping = nn.Linear(self.vocab_size, self.num_trend_tokens)
-                self.detail_mapping = nn.Linear(self.vocab_size, self.num_detail_tokens)
+                # 频率感知原型增强：共享原型库 + 可学习偏置
+                if self.use_freq_aware_prototypes:
+                    # 共享原型库大小（默认使用较小的值，例如 800）
+                    self.shared_proto_size = int(getattr(configs, 'shared_proto_size', 800))
+                    
+                    # 共享原型库映射层：使用整个词表生成共享原型
+                    # 输入: (vocab_size, d_llm) -> 转置为 (d_llm, vocab_size) -> Linear -> (d_llm, shared_proto_size) -> 转置回 (shared_proto_size, d_llm)
+                    self.shared_mapping = nn.Linear(self.vocab_size, self.shared_proto_size)
+                    
+                    # 可学习偏置：趋势偏置和细节偏置
+                    # 形状：(shared_proto_size, d_llm)
+                    if self.use_learnable_bias:
+                        self.trend_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        self.detail_bias = nn.Parameter(torch.zeros(self.shared_proto_size, self.d_llm))
+                        
+                        # 初始化偏置（小值初始化，避免破坏共享知识）
+                        nn.init.normal_(self.trend_bias, mean=0.0, std=0.01)
+                        nn.init.normal_(self.detail_bias, mean=0.0, std=0.01)
+                        bias_desc = "可学习偏置"
+                        bias_params = 2 * self.shared_proto_size * self.d_llm
+                    else:
+                        # Baseline模式：不使用可学习偏置，P_trend = P_shared, P_detail = P_shared
+                        self.trend_bias = None
+                        self.detail_bias = None
+                        bias_desc = "无偏置（Baseline模式，P_trend=P_detail=P_shared）"
+                        bias_params = 0
+                    
+                    # 如果共享原型库大小与目标原型数量不同，需要添加投影层
+                    if self.shared_proto_size != self.num_trend_tokens:
+                        self.proto_projection_trend = nn.Linear(self.shared_proto_size, self.num_trend_tokens)
+                    else:
+                        self.proto_projection_trend = None
+                    
+                    if self.shared_proto_size != self.num_detail_tokens:
+                        self.proto_projection_detail = nn.Linear(self.shared_proto_size, self.num_detail_tokens)
+                    else:
+                        self.proto_projection_detail = None
+                    
+                    # 不再使用独立的 trend_mapping 和 detail_mapping
+                    self.trend_mapping = None
+                    self.detail_mapping = None
+                    
+                    # 计算参数量
+                    shared_params = self.vocab_size * self.shared_proto_size
+                    # bias_params 已在前面根据 use_learnable_bias 计算
+                    proj_params = 0
+                    if self.proto_projection_trend is not None:
+                        proj_params += self.shared_proto_size * self.num_trend_tokens
+                    if self.proto_projection_detail is not None:
+                        proj_params += self.shared_proto_size * self.num_detail_tokens
+                    total_params = shared_params + bias_params + proj_params
+                    
+                    print("=" * 70)
+                    print("[TimeLLM] ✅ 启用频率感知原型增强（原版映射模式）")
+                    print("=" * 70)
+                    print(f"  ├─ 共享原型库大小: {self.shared_proto_size}")
+                    print(f"  ├─ 趋势原型数量: {self.num_trend_tokens}")
+                    print(f"  ├─ 细节原型数量: {self.num_detail_tokens}")
+                    print(f"  ├─ 共享映射层: Linear({self.vocab_size:,} → {self.shared_proto_size})")
+                    print(f"  │   └─ 参数量: {shared_params:,} ({shared_params/1e6:.2f}M)")
+                    print(f"  ├─ {bias_desc}")
+                    if bias_params > 0:
+                        print(f"  │   └─ 参数量: {bias_params:,} ({bias_params/1e6:.2f}M)")
+                    if proj_params > 0:
+                        print(f"  ├─ 原型投影层: {proj_params:,} ({proj_params/1e6:.2f}M)")
+                    print(f"  ├─ 总参数量: {total_params:,} ({total_params/1e6:.2f}M)")
+                    if self.use_learnable_bias:
+                        print(f"  └─ 数据流: 词表 → 共享原型库(P_shared) → P_trend=P_shared+B_trend, P_detail=P_shared+B_detail → ReprogrammingLayer")
+                    else:
+                        print(f"  └─ 数据流: 词表 → 共享原型库(P_shared) → P_trend=P_detail=P_shared → ReprogrammingLayer")
+                    print("=" * 70)
+                else:
+                    # 原版映射模式：使用整个词表
+                    self.trend_mapping = nn.Linear(self.vocab_size, self.num_trend_tokens)
+                    self.detail_mapping = nn.Linear(self.vocab_size, self.num_detail_tokens)
+                    print(f"[TimeLLM] ✅ 启用分离原型模式: {self.num_trend_tokens} 趋势 + {self.num_detail_tokens} 细节")
+                
                 self.trend_seed_embeddings = None
                 self.detail_seed_embeddings = None
                 self.mapping_layer = None
-                print(f"[TimeLLM] ✅ 启用分离原型模式: {self.num_trend_tokens} 趋势 + {self.num_detail_tokens} 细节")
         else:
             # 原版模式：1000 个共享原型
             self.trend_mapping = None
@@ -657,7 +899,36 @@ class Model(nn.Module):
                 # 分离原型模式 + WIST：使用分离的特征输出，分别学习
                 e_cA, e_detail, n_vars = self.patch_embedding.forward_separated(x_enc.float())
                 # 生成趋势和细节两个原型库
-                if self.use_full_vocab_split:
+                if self.use_freq_aware_prototypes:
+                    # 频率感知原型增强：P_trend = P_shared + B_trend, P_detail = P_shared + B_detail
+                    if self.use_full_vocab_split:
+                        # 全词表切分模式：使用整个词表生成共享原型
+                        P_shared = self.shared_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    elif self.use_semantic_filtered_mapping:
+                        # 语义筛选映射模式：使用所有种子词生成共享原型
+                        all_seed_embeddings = torch.cat([self.trend_seed_embeddings, self.detail_seed_embeddings], dim=0)
+                        P_shared = self.shared_mapping(all_seed_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    else:
+                        # 原版映射模式：使用整个词表生成共享原型
+                        P_shared = self.shared_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    
+                    # 应用可学习偏置（如果不使用可学习偏置，则 P_trend = P_detail = P_shared）
+                    if self.use_learnable_bias:
+                        trend_prototypes = P_shared + self.trend_bias  # (shared_proto_size, d_llm)
+                        detail_prototypes = P_shared + self.detail_bias  # (shared_proto_size, d_llm)
+                    else:
+                        # Baseline模式：P_trend = P_detail = P_shared（不使用偏置）
+                        trend_prototypes = P_shared  # (shared_proto_size, d_llm)
+                        detail_prototypes = P_shared  # (shared_proto_size, d_llm)
+                    
+                    # 如果共享原型库大小与目标原型数量不同，需要投影
+                    # 输入: (shared_proto_size, d_llm) -> 转置 -> (d_llm, shared_proto_size)
+                    # Linear(shared_proto_size -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    if self.proto_projection_trend is not None:
+                        trend_prototypes = self.proto_projection_trend(trend_prototypes.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    if self.proto_projection_detail is not None:
+                        detail_prototypes = self.proto_projection_detail(detail_prototypes.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                elif self.use_full_vocab_split:
                     # 全词表切分模式：使用切分后的词 embeddings + 线性映射（和原版TimeLLM一样）
                     # trend_vocab_embeddings: (num_trend_vocab, d_llm) -> 转置 -> (d_llm, num_trend_vocab)
                     # Linear(num_trend_vocab -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
@@ -679,7 +950,36 @@ class Model(nn.Module):
                 # 分离原型模式但非 WIST：使用融合后的特征（向后兼容）
                 enc_out, n_vars = self.patch_embedding(x_enc.float())
                 # 生成趋势和细节两个原型库
-                if self.use_full_vocab_split:
+                if self.use_freq_aware_prototypes:
+                    # 频率感知原型增强：P_trend = P_shared + B_trend, P_detail = P_shared + B_detail
+                    if self.use_full_vocab_split:
+                        # 全词表切分模式：使用整个词表生成共享原型
+                        P_shared = self.shared_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    elif self.use_semantic_filtered_mapping:
+                        # 语义筛选映射模式：使用所有种子词生成共享原型
+                        all_seed_embeddings = torch.cat([self.trend_seed_embeddings, self.detail_seed_embeddings], dim=0)
+                        P_shared = self.shared_mapping(all_seed_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    else:
+                        # 原版映射模式：使用整个词表生成共享原型
+                        P_shared = self.shared_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (shared_proto_size, d_llm)
+                    
+                    # 应用可学习偏置（如果不使用可学习偏置，则 P_trend = P_detail = P_shared）
+                    if self.use_learnable_bias:
+                        trend_prototypes = P_shared + self.trend_bias  # (shared_proto_size, d_llm)
+                        detail_prototypes = P_shared + self.detail_bias  # (shared_proto_size, d_llm)
+                    else:
+                        # Baseline模式：P_trend = P_detail = P_shared（不使用偏置）
+                        trend_prototypes = P_shared  # (shared_proto_size, d_llm)
+                        detail_prototypes = P_shared  # (shared_proto_size, d_llm)
+                    
+                    # 如果共享原型库大小与目标原型数量不同，需要投影
+                    # 输入: (shared_proto_size, d_llm) -> 转置 -> (d_llm, shared_proto_size)
+                    # Linear(shared_proto_size -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    if self.proto_projection_trend is not None:
+                        trend_prototypes = self.proto_projection_trend(trend_prototypes.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    if self.proto_projection_detail is not None:
+                        detail_prototypes = self.proto_projection_detail(detail_prototypes.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                elif self.use_full_vocab_split:
                     # 全词表切分模式：使用切分后的词 embeddings + 线性映射（和原版TimeLLM一样）
                     # trend_vocab_embeddings: (num_trend_vocab, d_llm) -> 转置 -> (d_llm, num_trend_vocab)
                     # Linear(num_trend_vocab -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
