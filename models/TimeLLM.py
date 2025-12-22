@@ -11,6 +11,7 @@ from layers.DualScaleHead import DualScaleResidualHead
 from layers.CWPR import CWPRReprogrammingLayer
 import transformers
 from layers.StandardNorm import Normalize
+from utils.seed_word_selector import select_seed_words
 
 transformers.logging.set_verbosity_error()
 
@@ -228,19 +229,168 @@ class Model(nn.Module):
         
         # 分离原型配置（仅用于原版 ReprogrammingLayer，不影响 CWPR）
         self.use_dual_prototypes = bool(getattr(configs, 'use_dual_prototypes', 0))
+        self.use_semantic_filtered_mapping = False  # 默认值，在 use_dual_prototypes 时可能被覆盖
+        self.use_full_vocab_split = False  # 全词表切分模式（新功能）
         
         if self.use_dual_prototypes:
             # 分离原型模式：分别指定趋势原型和细节原型的数量
             self.num_trend_tokens = int(getattr(configs, 'dual_proto_trend_tokens', 1000))
             self.num_detail_tokens = int(getattr(configs, 'dual_proto_detail_tokens', 1000))
-            self.trend_mapping = nn.Linear(self.vocab_size, self.num_trend_tokens)
-            self.detail_mapping = nn.Linear(self.vocab_size, self.num_detail_tokens)
-            self.mapping_layer = None  # 不再使用单一 mapping_layer
-            print(f"[TimeLLM] ✅ 启用分离原型模式: {self.num_trend_tokens} 趋势 + {self.num_detail_tokens} 细节")
+            
+            # 全词表切分模式（新功能）：将整个词表切分成趋势桶和细节桶
+            self.use_full_vocab_split = bool(getattr(configs, 'use_full_vocab_split', 0))
+            
+            # 语义筛选映射配置（新功能）
+            self.use_semantic_filtered_mapping = bool(getattr(configs, 'use_semantic_filtered_mapping', 0))
+            
+            # 全词表切分和语义筛选映射是互斥的
+            if self.use_full_vocab_split and self.use_semantic_filtered_mapping:
+                raise ValueError("use_full_vocab_split 和 use_semantic_filtered_mapping 不能同时启用，请选择其一")
+            
+            if self.use_full_vocab_split:
+                # 全词表切分模式：将整个词表通过语义评分切分成趋势桶和细节桶
+                from utils.vocab_splitter import split_full_vocab_by_semantics
+                
+                print("\n" + "=" * 70)
+                print("[TimeLLM] 🔄 开始全词表语义切分...")
+                print("=" * 70)
+                
+                # 执行全词表语义切分
+                trend_vocab_indices, detail_vocab_indices = split_full_vocab_by_semantics(
+                    tokenizer=self.tokenizer,
+                    word_embeddings=self.word_embeddings,
+                    trend_anchors=None,  # 使用默认锚点
+                    detail_anchors=None,
+                    verbose=True
+                )
+                
+                # 提取切分后的 embeddings 并注册为 Buffer（固定，不更新）
+                trend_vocab_embeddings = self.word_embeddings[trend_vocab_indices].detach()
+                detail_vocab_embeddings = self.word_embeddings[detail_vocab_indices].detach()
+                
+                self.register_buffer('trend_vocab_embeddings', trend_vocab_embeddings)
+                self.register_buffer('detail_vocab_embeddings', detail_vocab_embeddings)
+                
+                # 保存索引（用于调试和可视化）
+                self.register_buffer('trend_vocab_indices', trend_vocab_indices)
+                self.register_buffer('detail_vocab_indices', detail_vocab_indices)
+                
+                # 线性映射层：从切分后的词数映射到原型数量（和原版TimeLLM一样）
+                # 输入: (num_trend_vocab, d_llm) -> 转置为 (d_llm, num_trend_vocab) -> Linear -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                self.trend_mapping = nn.Linear(len(trend_vocab_indices), self.num_trend_tokens)
+                self.detail_mapping = nn.Linear(len(detail_vocab_indices), self.num_detail_tokens)
+                
+                self.trend_seed_embeddings = None
+                self.detail_seed_embeddings = None
+                self.mapping_layer = None
+                
+                # 计算参数量
+                trend_params = len(trend_vocab_indices) * self.num_trend_tokens
+                detail_params = len(detail_vocab_indices) * self.num_detail_tokens
+                total_params = trend_params + detail_params
+                
+                print("=" * 70)
+                print("[TimeLLM] ✅ 启用全词表切分模式（分离原型）")
+                print("=" * 70)
+                print(f"  ├─ 趋势桶: {len(trend_vocab_indices):,} 个词 → {self.num_trend_tokens} 个趋势原型")
+                print(f"  ├─ 细节桶: {len(detail_vocab_indices):,} 个词 → {self.num_detail_tokens} 个细节原型")
+                print(f"  ├─ 映射层配置（线性映射，和原版TimeLLM一样）:")
+                print(f"  │   ├─ 趋势映射: Linear({len(trend_vocab_indices):,} → {self.num_trend_tokens})")
+                print(f"  │   │   └─ 参数量: {trend_params:,} ({trend_params/1e6:.2f}M)")
+                print(f"  │   └─ 细节映射: Linear({len(detail_vocab_indices):,} → {self.num_detail_tokens})")
+                print(f"  │       └─ 参数量: {detail_params:,} ({detail_params/1e6:.2f}M)")
+                print(f"  ├─ 总参数量: {total_params:,} ({total_params/1e6:.2f}M)")
+                print(f"  ├─ Buffer状态: 切分后的词embeddings已注册为Buffer（不参与梯度更新）")
+                print(f"  └─ 数据流: 全词表切分 → 趋势/细节桶(Buffer) → 线性映射层(可学习) → 原型词 → ReprogrammingLayer")
+                print("=" * 70)
+            elif self.use_semantic_filtered_mapping:
+                # 语义筛选映射模式：使用筛选出的种子词作为输入源
+                num_trend_seed_words = int(getattr(configs, 'dual_proto_trend_seed_words', 300))
+                num_detail_seed_words = int(getattr(configs, 'dual_proto_detail_seed_words', 700))
+                use_semantic_filter = bool(getattr(configs, 'dual_proto_seed_semantic_filter', 1))
+                
+                # 筛选种子词
+                trend_seed_indices, detail_seed_indices = select_seed_words(
+                    tokenizer=self.tokenizer,
+                    word_embeddings=self.word_embeddings,
+                    num_trend_words=num_trend_seed_words,
+                    num_detail_words=num_detail_seed_words,
+                    use_semantic_filter=use_semantic_filter,
+                    ensure_disjoint=True
+                )
+                
+                # 提取种子词的 embeddings 并注册为 Buffer（固定，不更新）
+                trend_seed_embeddings = self.word_embeddings[trend_seed_indices].detach()
+                detail_seed_embeddings = self.word_embeddings[detail_seed_indices].detach()
+                
+                self.register_buffer('trend_seed_embeddings', trend_seed_embeddings)
+                self.register_buffer('detail_seed_embeddings', detail_seed_embeddings)
+                
+                # 映射层：从种子词数量映射到原型数量（策略一：MLP非线性映射）
+                # 输入: (num_seed_words, d_llm) -> 转置为 (d_llm, num_seed_words) -> MLP -> (d_llm, num_prototypes) -> 转置回 (num_prototypes, d_llm)
+                # 策略：使用 MLP(num_seed_words -> hidden_dim -> num_prototypes) 对转置后的矩阵进行非线性映射
+                # 优势：非线性激活（GELU）允许模型学习文本语义空间到时序语义空间的复杂映射
+                
+                # MLP配置参数
+                mlp_hidden_dim = int(getattr(configs, 'dual_proto_mlp_hidden_dim', 4096))
+                mlp_dropout = float(getattr(configs, 'dual_proto_mlp_dropout', 0.1))
+                
+                # 趋势映射：MLP with bottleneck expansion
+                self.trend_mapping = nn.Sequential(
+                    nn.Linear(len(trend_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
+                    nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
+                    nn.Dropout(mlp_dropout),                               # 防止过拟合
+                    nn.Linear(mlp_hidden_dim, self.num_trend_tokens)       # 降维：投影到原型空间
+                )
+                
+                # 细节映射：MLP with bottleneck expansion
+                self.detail_mapping = nn.Sequential(
+                    nn.Linear(len(detail_seed_indices), mlp_hidden_dim),  # 升维：展开信息空间
+                    nn.GELU(),                                             # 非线性激活：打破语义空间刚性结构
+                    nn.Dropout(mlp_dropout),                               # 防止过拟合
+                    nn.Linear(mlp_hidden_dim, self.num_detail_tokens)      # 降维：投影到原型空间
+                )
+                
+                self.mapping_layer = None
+                
+                # 计算参数量
+                trend_mlp_params = (len(trend_seed_indices) * mlp_hidden_dim + 
+                                   mlp_hidden_dim * self.num_trend_tokens)
+                detail_mlp_params = (len(detail_seed_indices) * mlp_hidden_dim + 
+                                     mlp_hidden_dim * self.num_detail_tokens)
+                total_mlp_params = trend_mlp_params + detail_mlp_params
+                
+                print("=" * 70)
+                print("[TimeLLM] ✅ 启用分离原型模式（语义筛选映射 + MLP非线性映射）")
+                print("=" * 70)
+                print(f"  ├─ 趋势种子词: {len(trend_seed_indices)} 个 → {self.num_trend_tokens} 个趋势原型")
+                print(f"  ├─ 细节种子词: {len(detail_seed_indices)} 个 → {self.num_detail_tokens} 个细节原型")
+                print(f"  ├─ 语义过滤: {'✅ 启用' if use_semantic_filter else '❌ 关闭'}")
+                print(f"  ├─ 映射层配置（策略一：MLP非线性映射）:")
+                print(f"  │   ├─ 趋势映射: MLP({len(trend_seed_indices)} → {mlp_hidden_dim} → {self.num_trend_tokens})")
+                print(f"  │   │   └─ 参数量: {trend_mlp_params:,} ({trend_mlp_params/1e6:.2f}M)")
+                print(f"  │   └─ 细节映射: MLP({len(detail_seed_indices)} → {mlp_hidden_dim} → {self.num_detail_tokens})")
+                print(f"  │       └─ 参数量: {detail_mlp_params:,} ({detail_mlp_params/1e6:.2f}M)")
+                print(f"  ├─ MLP总参数量: {total_mlp_params:,} ({total_mlp_params/1e6:.2f}M)")
+                print(f"  ├─ 激活函数: GELU (非线性映射)")
+                print(f"  ├─ Dropout率: {mlp_dropout}")
+                print(f"  ├─ Buffer状态: 种子词embeddings已注册为Buffer（不参与梯度更新）")
+                print(f"  └─ 数据流: 种子词(Buffer) → MLP映射层(可学习) → 原型词 → ReprogrammingLayer")
+                print("=" * 70)
+            else:
+                # 原版映射模式：使用整个词表
+                self.trend_mapping = nn.Linear(self.vocab_size, self.num_trend_tokens)
+                self.detail_mapping = nn.Linear(self.vocab_size, self.num_detail_tokens)
+                self.trend_seed_embeddings = None
+                self.detail_seed_embeddings = None
+                self.mapping_layer = None
+                print(f"[TimeLLM] ✅ 启用分离原型模式: {self.num_trend_tokens} 趋势 + {self.num_detail_tokens} 细节")
         else:
             # 原版模式：1000 个共享原型
             self.trend_mapping = None
             self.detail_mapping = None
+            self.trend_seed_embeddings = None
+            self.detail_seed_embeddings = None
             self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
             print(f"[TimeLLM] 使用原版映射层: 1000 个共享原型")
 
@@ -312,26 +462,45 @@ class Model(nn.Module):
             if self.use_dual_prototypes:
                 # 使用分离原型层
                 fusion_method = getattr(configs, 'dual_proto_fusion_method', 'mean')
+                # 调试信息：打印实际读取到的值（帮助诊断参数传递问题）
+                if hasattr(configs, 'dual_proto_fusion_method'):
+                    print(f"[TimeLLM] 🔍 调试: configs.dual_proto_fusion_method = '{configs.dual_proto_fusion_method}'")
+                else:
+                    print(f"[TimeLLM] ⚠️  警告: configs 中没有 dual_proto_fusion_method 属性，使用默认值 'mean'")
+                print(f"[TimeLLM] 🔍 调试: 最终使用的 fusion_method = '{fusion_method}'")
+                gate_bias_init = float(getattr(configs, 'dual_proto_gate_bias_init', 0.0))
                 self.reprogramming_layer = DualReprogrammingLayer(
                     configs.d_model, 
                     configs.n_heads, 
                     self.d_ff // configs.n_heads, 
                     self.d_llm,
                     attention_dropout=configs.dropout,
-                    fusion_method=fusion_method
+                    fusion_method=fusion_method,
+                    gate_bias_init=gate_bias_init
                 )
+                # 保存融合方法，用于输出头适配
+                self.fusion_method = fusion_method
                 self.cwpr_layer = None
                 num_trend = getattr(self, 'num_trend_tokens', 1000)
                 num_detail = getattr(self, 'num_detail_tokens', 1000)
                 print(f"[TimeLLM] 使用 DualReprogrammingLayer (分离原型: {num_trend}+{num_detail}, 融合方法={fusion_method})")
+                if fusion_method == 'interleave':
+                    print(f"[TimeLLM] ⚠️  交错拼接模式：序列长度将翻倍 (L → 2L)，输出头将自动适配")
+                elif fusion_method == 'channel_concat':
+                    print(f"[TimeLLM] ✅ 通道拼接模式：序列长度保持不变 (L)，特征维度拼接后投影")
             else:
                 # 使用原版 ReprogrammingLayer
                 self.reprogramming_layer = ReprogrammingLayer(configs.d_model, configs.n_heads, self.d_ff, self.d_llm)
+                self.fusion_method = None  # 原版不使用融合方法
                 self.cwpr_layer = None
                 print("[TimeLLM] 使用 ReprogrammingLayer (原版)")
 
         self.patch_nums = int((configs.seq_len - self.patch_len) / self.stride + 2)
-        self.head_nf = self.d_ff * self.patch_nums
+        # 检查是否使用交错拼接模式（序列长度翻倍）
+        fusion_method = getattr(configs, 'dual_proto_fusion_method', 'mean') if getattr(configs, 'use_dual_prototypes', 0) else None
+        use_interleave = (fusion_method == 'interleave')
+        # head_nf 需要根据是否使用交错拼接来调整
+        self.head_nf = self.d_ff * (2 * self.patch_nums if use_interleave else self.patch_nums)
 
         # 输出头选择：双尺度残差头 vs 频率解耦头 vs 原始 FlattenHead
         self.use_dual_scale_head = getattr(configs, 'use_dual_scale_head', 0)
@@ -340,15 +509,19 @@ class Model(nn.Module):
         if self.task_name == 'long_term_forecast' or self.task_name == 'short_term_forecast':
             if self.use_dual_scale_head:
                 # 双尺度残差输出头 (Dual-Scale Residual Head)
+                # 如果使用交错拼接，patch_nums 需要翻倍
+                effective_patch_nums = 2 * self.patch_nums if use_interleave else self.patch_nums
                 self.output_projection = DualScaleResidualHead(
                     n_vars=configs.enc_in,
                     d_ff=self.d_ff,
-                    patch_nums=self.patch_nums,
+                    patch_nums=effective_patch_nums,
                     target_window=self.pred_len,
                     head_dropout=configs.dropout,
                     detail_dropout=getattr(configs, 'detail_dropout', 0.0),
                 )
                 print("[TimeLLM] 使用 DualScaleResidualHead (双尺度残差输出头)")
+                if use_interleave:
+                    print(f"[TimeLLM] ⚠️  交错拼接模式：DualScaleResidualHead 已适配 2*patch_nums={effective_patch_nums}")
             elif self.use_freq_decoupled_head:
                 # 三频带解耦输出头 (Tri-Band Decoupled Head)
                 self.output_projection = TriBandDecoupledHead(
@@ -484,16 +657,44 @@ class Model(nn.Module):
                 # 分离原型模式 + WIST：使用分离的特征输出，分别学习
                 e_cA, e_detail, n_vars = self.patch_embedding.forward_separated(x_enc.float())
                 # 生成趋势和细节两个原型库
-                trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
-                detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                if self.use_full_vocab_split:
+                    # 全词表切分模式：使用切分后的词 embeddings + 线性映射（和原版TimeLLM一样）
+                    # trend_vocab_embeddings: (num_trend_vocab, d_llm) -> 转置 -> (d_llm, num_trend_vocab)
+                    # Linear(num_trend_vocab -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    trend_prototypes = self.trend_mapping(self.trend_vocab_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.detail_vocab_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                elif self.use_semantic_filtered_mapping:
+                    # 语义筛选映射模式：使用 Buffer 中的种子词 embeddings + MLP非线性映射
+                    # trend_seed_embeddings: (num_trend_seed_words, d_llm) -> 转置 -> (d_llm, num_trend_seed_words)
+                    # MLP(num_trend_seed_words -> hidden_dim -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    trend_prototypes = self.trend_mapping(self.trend_seed_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.detail_seed_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                else:
+                    # 原版映射模式：使用整个词表
+                    trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
                 # 分别使用趋势特征和细节特征进行学习
                 enc_out = self.reprogramming_layer(e_cA, e_detail, trend_prototypes, detail_prototypes)
             elif self.use_dual_prototypes:
                 # 分离原型模式但非 WIST：使用融合后的特征（向后兼容）
                 enc_out, n_vars = self.patch_embedding(x_enc.float())
                 # 生成趋势和细节两个原型库
-                trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
-                detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                if self.use_full_vocab_split:
+                    # 全词表切分模式：使用切分后的词 embeddings + 线性映射（和原版TimeLLM一样）
+                    # trend_vocab_embeddings: (num_trend_vocab, d_llm) -> 转置 -> (d_llm, num_trend_vocab)
+                    # Linear(num_trend_vocab -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    trend_prototypes = self.trend_mapping(self.trend_vocab_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.detail_vocab_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                elif self.use_semantic_filtered_mapping:
+                    # 语义筛选映射模式：使用 Buffer 中的种子词 embeddings + MLP非线性映射
+                    # trend_seed_embeddings: (num_trend_seed_words, d_llm) -> 转置 -> (d_llm, num_trend_seed_words)
+                    # MLP(num_trend_seed_words -> hidden_dim -> num_trend_tokens) -> (d_llm, num_trend_tokens) -> 转置回 (num_trend_tokens, d_llm)
+                    trend_prototypes = self.trend_mapping(self.trend_seed_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.detail_seed_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                else:
+                    # 原版映射模式：使用整个词表
+                    trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                    detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
                 # 使用融合后的特征（两个流都使用相同的输入，但原型库不同）
                 enc_out = self.reprogramming_layer(enc_out, enc_out, trend_prototypes, detail_prototypes)
             else:
@@ -509,11 +710,23 @@ class Model(nn.Module):
             dec_out, (-1, n_vars, dec_out.shape[-2], dec_out.shape[-1]))
         dec_out = dec_out.permute(0, 1, 3, 2).contiguous()
 
+        # 判断是否使用交错拼接模式（序列长度翻倍）
+        use_interleave = (hasattr(self, 'fusion_method') and 
+                         self.fusion_method == 'interleave')
+        
+        if use_interleave:
+            # 交错拼接模式：序列长度是 2*patch_nums
+            # 取后 2*patch_nums 个 token（包含所有趋势和细节信息）
+            num_tokens_to_take = 2 * self.patch_nums
+        else:
+            # 普通模式：序列长度是 patch_nums
+            num_tokens_to_take = self.patch_nums
+        
         # 输出投影
         if self.use_freq_decoupled_head and return_components:
             # 使用三频带解耦头，返回分量用于深度监督
             dec_out, components = self.output_projection(
-                dec_out[:, :, :, -self.patch_nums:], 
+                dec_out[:, :, :, -num_tokens_to_take:], 
                 return_components=True
             )
             # 注意：TriBandDecoupledHead 已经做了 permute，输出是 (B, pred_len, N)
@@ -523,7 +736,7 @@ class Model(nn.Module):
                 components[k] = self.normalize_layers(components[k], 'denorm')
             return dec_out, components
         else:
-            dec_out = self.output_projection(dec_out[:, :, :, -self.patch_nums:])
+            dec_out = self.output_projection(dec_out[:, :, :, -num_tokens_to_take:])
             if self.use_dual_scale_head or self.use_freq_decoupled_head:
                 # DualScaleHead 和 TriBandDecoupledHead 输出已经是 (B, pred_len, N)
                 dec_out = self.normalize_layers(dec_out, 'denorm')
@@ -719,6 +932,61 @@ class ReprogrammingLayer(nn.Module):
         return reprogramming_embedding
 
 
+class AdaptiveFusionGate(nn.Module):
+    """
+    自适应融合门控网络
+    
+    基于原始趋势和细节特征动态计算每个位置的融合权重。
+    相比全局单一权重，能够根据输入特征自适应调整融合策略。
+    
+    Args:
+        d_model: 输入特征维度
+        gate_bias_init: 门控偏置初始化值（控制初始偏向趋势还是细节）
+                       0.0=平衡, >0=偏向趋势, <0=偏向细节
+    """
+    
+    def __init__(self, d_model, gate_bias_init=0.0):
+        super(AdaptiveFusionGate, self).__init__()
+        
+        # MLP: 2*d_model -> d_model -> 1
+        # 输入是拼接的趋势和细节特征，输出是门控权重
+        self.gate_mlp = nn.Sequential(
+            nn.Linear(2 * d_model, d_model),
+            nn.ReLU(),
+            nn.Linear(d_model, 1),
+            nn.Sigmoid()
+        )
+        
+        # 初始化偏置，控制初始融合倾向
+        for m in self.gate_mlp.modules():
+            if isinstance(m, nn.Linear):
+                if m.out_features == 1:  # 最后一层
+                    nn.init.constant_(m.bias, gate_bias_init)
+                else:
+                    nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                    nn.init.constant_(m.bias, 0)
+    
+    def forward(self, trend_embedding, detail_embedding):
+        """
+        基于原始特征计算动态门控权重
+        
+        Args:
+            trend_embedding: (B, L, d_model) 原始趋势特征
+            detail_embedding: (B, L, d_model) 原始细节特征
+        
+        Returns:
+            gate: (B, L, 1) 门控权重，值在[0,1]之间
+                  gate值大表示更关注趋势，值小表示更关注细节
+        """
+        # 拼接特征
+        combined = torch.cat([trend_embedding, detail_embedding], dim=-1)  # (B, L, 2*d_model)
+        
+        # 计算门控权重
+        gate = self.gate_mlp(combined)  # (B, L, 1)
+        
+        return gate
+
+
 class DualReprogrammingLayer(nn.Module):
     """
     双原型重编程层
@@ -729,7 +997,7 @@ class DualReprogrammingLayer(nn.Module):
     架构：
     1. 趋势流：trend_embedding -> Cross-Attention(trend_prototypes) -> sem_trend
     2. 细节流：detail_embedding -> Cross-Attention(detail_prototypes) -> sem_detail
-    3. 融合：简单平均或加权融合
+    3. 融合：简单平均、加权融合、动态门控融合、交错拼接或通道拼接
     
     当与 WIST 结合使用时：
     - trend_embedding: WIST 输出的 e_cA（低频趋势特征）
@@ -745,10 +1013,13 @@ class DualReprogrammingLayer(nn.Module):
         d_keys: 每个头的键维度（默认 d_model // n_heads）
         d_llm: LLM嵌入维度
         attention_dropout: Attention dropout率
-        fusion_method: 融合方法 ('mean', 'weighted')
+        fusion_method: 融合方法 ('mean', 'weighted', 'adaptive_gate', 'interleave', 'channel_concat')
+        gate_bias_init: 动态门控偏置初始化值（仅当fusion_method='adaptive_gate'时有效）
+                       0.0=平衡, >0=偏向趋势, <0=偏向细节
     """
     
-    def __init__(self, d_model, n_heads, d_keys=None, d_llm=None, attention_dropout=0.1, fusion_method='mean'):
+    def __init__(self, d_model, n_heads, d_keys=None, d_llm=None, attention_dropout=0.1, 
+                 fusion_method='mean', gate_bias_init=0.0):
         super(DualReprogrammingLayer, self).__init__()
         
         # 创建两个独立的 ReprogrammingLayer
@@ -757,11 +1028,28 @@ class DualReprogrammingLayer(nn.Module):
         
         self.fusion_method = fusion_method
         
-        # 如果使用加权融合，添加可学习的权重
+        # 根据融合方法初始化不同的组件
         if fusion_method == 'weighted':
+            # 加权融合：全局单一可学习权重
             self.fusion_weight = nn.Parameter(torch.tensor(0.5))  # 初始权重 0.5（平衡）
-        else:
+            self.fusion_gate = None
+            self.fusion_projection = None
+        elif fusion_method == 'adaptive_gate':
+            # 动态门控融合：基于特征计算每个位置的权重
             self.fusion_weight = None
+            self.fusion_gate = AdaptiveFusionGate(d_model, gate_bias_init=gate_bias_init)
+            self.fusion_projection = None
+        elif fusion_method == 'channel_concat':
+            # 通道拼接融合：在特征维度拼接后投影回原始维度
+            # 将 (B, L, 2*d_llm) 投影回 (B, L, d_llm)
+            self.fusion_weight = None
+            self.fusion_gate = None
+            self.fusion_projection = nn.Linear(2 * d_llm, d_llm)
+        else:
+            # mean融合：无需额外参数
+            self.fusion_weight = None
+            self.fusion_gate = None
+            self.fusion_projection = None
     
     def forward(self, trend_embedding, detail_embedding, trend_prototypes, detail_prototypes):
         """
@@ -772,8 +1060,12 @@ class DualReprogrammingLayer(nn.Module):
             detail_prototypes: (N, d_llm) 细节原型库，N 由 dual_proto_num_tokens 指定
         
         Returns:
-            output: (B, L, d_llm) 语义空间表示
+            output: (B, L, d_llm) 或 (B, 2L, d_llm) 语义空间表示
+                    - 如果 fusion_method='interleave'，返回 (B, 2L, d_llm)
+                    - 否则返回 (B, L, d_llm)
         """
+        B, L, _ = trend_embedding.shape
+        
         # 趋势流：使用趋势特征和趋势原型库
         sem_trend = self.trend_reprogramming(
             trend_embedding, 
@@ -790,13 +1082,29 @@ class DualReprogrammingLayer(nn.Module):
         
         # 融合
         if self.fusion_method == 'mean':
-            # 简单平均
-            output = (sem_trend + sem_detail) / 2
+            # 简单平均：固定50/50分配
+            output = (sem_trend + sem_detail) / 2  # (B, L, d_llm)
         elif self.fusion_method == 'weighted':
-            # 加权融合（可学习权重）
+            # 加权融合：全局单一可学习权重
             weight = torch.sigmoid(self.fusion_weight)
-            output = weight * sem_trend + (1 - weight) * sem_detail
+            output = weight * sem_trend + (1 - weight) * sem_detail  # (B, L, d_llm)
+        elif self.fusion_method == 'adaptive_gate':
+            # 动态门控融合：基于原始特征计算每个位置的融合权重
+            gate = self.fusion_gate(trend_embedding, detail_embedding)  # (B, L, 1)
+            output = gate * sem_trend + (1 - gate) * sem_detail  # (B, L, d_llm)
+        elif self.fusion_method == 'interleave':
+            # 交错拼接：让LLM的Self-Attention学习趋势和细节的关系
+            # [T1, D1, T2, D2, T3, D3, ...]
+            # 将 (B, L, d_llm) 和 (B, L, d_llm) 交错拼接成 (B, 2L, d_llm)
+            output = torch.stack([sem_trend, sem_detail], dim=2)  # (B, L, 2, d_llm)
+            output = output.view(B, 2*L, -1)  # (B, 2L, d_llm)
+        elif self.fusion_method == 'channel_concat':
+            # 通道拼接：在特征维度拼接，保持序列长度不变
+            # 将 (B, L, d_llm) 和 (B, L, d_llm) 在特征维度拼接成 (B, L, 2*d_llm)
+            # 然后通过投影层映射回 (B, L, d_llm)
+            concat_output = torch.cat([sem_trend, sem_detail], dim=-1)  # (B, L, 2*d_llm)
+            output = self.fusion_projection(concat_output)  # (B, L, d_llm)
         else:
-            raise ValueError(f"未知的融合方法: {self.fusion_method}")
+            raise ValueError(f"未知的融合方法: {self.fusion_method}，支持的方法: 'mean', 'weighted', 'adaptive_gate', 'interleave', 'channel_concat'")
         
         return output

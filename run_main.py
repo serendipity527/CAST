@@ -165,8 +165,30 @@ parser.add_argument('--dual_proto_trend_tokens', type=int, default=1000,
 parser.add_argument('--dual_proto_detail_tokens', type=int, default=1000,
                     help='细节原型的数量 (默认1000, 仅当use_dual_prototypes=1时有效)')
 parser.add_argument('--dual_proto_fusion_method', type=str, default='mean',
-                    choices=['mean', 'weighted'],
-                    help='分离原型的融合方法 (mean=简单平均, weighted=可学习加权融合, 仅当use_dual_prototypes=1时有效)')
+                    choices=['mean', 'weighted', 'adaptive_gate', 'interleave', 'channel_concat'],
+                    help='分离原型的融合方法 (mean=简单平均, weighted=可学习加权融合, adaptive_gate=动态门控融合, interleave=交错拼接, channel_concat=通道拼接, 仅当use_dual_prototypes=1时有效)')
+parser.add_argument('--dual_proto_gate_bias_init', type=float, default=0.0,
+                    help='动态门控偏置初始化值 (默认0.0=平衡, >0=偏向趋势, <0=偏向细节, 仅当fusion_method=adaptive_gate时有效)')
+
+# 语义筛选映射配置 (新功能：使用筛选出的种子词作为映射输入源)
+parser.add_argument('--use_semantic_filtered_mapping', type=int, default=0,
+                    help='是否启用语义筛选映射 (0=使用整个词表, 1=使用筛选出的种子词, 仅当use_dual_prototypes=1时有效)')
+parser.add_argument('--dual_proto_trend_seed_words', type=int, default=300,
+                    help='趋势种子词的数量 (默认300, 仅当use_semantic_filtered_mapping=1时有效)')
+parser.add_argument('--dual_proto_detail_seed_words', type=int, default=700,
+                    help='细节种子词的数量 (默认700, 仅当use_semantic_filtered_mapping=1时有效)')
+parser.add_argument('--dual_proto_seed_semantic_filter', type=int, default=1,
+                    help='种子词筛选是否使用语义过滤 (0=仅频率排序, 1=语义相似度+频率, 仅当use_semantic_filtered_mapping=1时有效)')
+
+# MLP映射层配置 (策略一：非线性映射)
+parser.add_argument('--dual_proto_mlp_hidden_dim', type=int, default=4096,
+                    help='MLP映射层隐藏层维度 (默认4096, 仅当use_semantic_filtered_mapping=1时有效)')
+parser.add_argument('--dual_proto_mlp_dropout', type=float, default=0.1,
+                    help='MLP映射层Dropout率 (默认0.1, 仅当use_semantic_filtered_mapping=1时有效)')
+
+# 全词表切分配置 (新功能：将整个词表通过语义评分切分成趋势桶和细节桶)
+parser.add_argument('--use_full_vocab_split', type=int, default=0,
+                    help='是否启用全词表切分模式 (0=关闭, 1=启用, 将整个词表切分成趋势桶和细节桶, 仅当use_dual_prototypes=1时有效, 与use_semantic_filtered_mapping互斥)')
 
 # 频率解耦输出头 (Tri-Band Decoupled Head) 配置
 parser.add_argument('--use_freq_decoupled_head', type=int, default=0,
