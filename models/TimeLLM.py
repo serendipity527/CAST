@@ -8,6 +8,7 @@ from transformers import LlamaConfig, LlamaModel, LlamaTokenizer, GPT2Config, GP
 from layers.Embed import PatchEmbedding, WaveletPatchEmbedding, WISTPatchEmbedding
 from layers.FrequencyDecoupledHead import TriBandDecoupledHead, DeepSupervisionLoss
 from layers.DualScaleHead import DualScaleResidualHead
+from layers.CWPR import CWPRReprogrammingLayer
 import transformers
 from layers.StandardNorm import Normalize
 
@@ -201,6 +202,7 @@ class Model(nn.Module):
                 freq_embed_init_method=getattr(configs, 'freq_embed_init_method', 'random'),
                 use_positional_encoding=bool(getattr(configs, 'use_positional_encoding', 0)),
                 pos_encoding_max_len=int(getattr(configs, 'pos_encoding_max_len', 5000)),
+                use_hf_freq_attention=bool(getattr(configs, 'use_hf_freq_attention', 1)),  # 默认使用频率注意力进行高频融合
                 configs=configs,
             )
             print("[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)")
@@ -223,9 +225,110 @@ class Model(nn.Module):
         self.word_embeddings = self.llm_model.get_input_embeddings().weight
         self.vocab_size = self.word_embeddings.shape[0]
         self.num_tokens = 1000
-        self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
+        
+        # 分离原型配置（仅用于原版 ReprogrammingLayer，不影响 CWPR）
+        self.use_dual_prototypes = bool(getattr(configs, 'use_dual_prototypes', 0))
+        
+        if self.use_dual_prototypes:
+            # 分离原型模式：分别指定趋势原型和细节原型的数量
+            self.num_trend_tokens = int(getattr(configs, 'dual_proto_trend_tokens', 1000))
+            self.num_detail_tokens = int(getattr(configs, 'dual_proto_detail_tokens', 1000))
+            self.trend_mapping = nn.Linear(self.vocab_size, self.num_trend_tokens)
+            self.detail_mapping = nn.Linear(self.vocab_size, self.num_detail_tokens)
+            self.mapping_layer = None  # 不再使用单一 mapping_layer
+            print(f"[TimeLLM] ✅ 启用分离原型模式: {self.num_trend_tokens} 趋势 + {self.num_detail_tokens} 细节")
+        else:
+            # 原版模式：1000 个共享原型
+            self.trend_mapping = None
+            self.detail_mapping = None
+            self.mapping_layer = nn.Linear(self.vocab_size, self.num_tokens)
+            print(f"[TimeLLM] 使用原版映射层: 1000 个共享原型")
 
-        self.reprogramming_layer = ReprogrammingLayer(configs.d_model, configs.n_heads, self.d_ff, self.d_llm)
+        # CWPR 配置
+        self.use_cwpr = bool(getattr(configs, 'use_cwpr', 0))
+        
+        if self.use_cwpr:
+            # 使用 CWPR 重编程层
+            cwpr_num_prototypes = int(getattr(configs, 'cwpr_num_prototypes', 256))
+            cwpr_n_heads = int(getattr(configs, 'cwpr_n_heads', configs.n_heads))
+            cwpr_dropout = float(getattr(configs, 'cwpr_dropout', 0.1))
+            cwpr_gate_bias_init = float(getattr(configs, 'cwpr_gate_bias_init', 2.0))
+            cwpr_proto_init = getattr(configs, 'cwpr_proto_init', 'random')
+            cwpr_use_kmeans = bool(getattr(configs, 'cwpr_use_kmeans', 0))
+            cwpr_top_n_words = getattr(configs, 'cwpr_top_n_words', None)
+            if cwpr_top_n_words is not None:
+                cwpr_top_n_words = int(cwpr_top_n_words)
+            
+            # 如果使用word_embed初始化，需要提供词嵌入
+            word_embeddings_for_init = None
+            if cwpr_proto_init == 'word_embed':
+                word_embeddings_for_init = self.word_embeddings
+            
+            # K-Means仅在word_embed模式下有效
+            if cwpr_use_kmeans and cwpr_proto_init != 'word_embed':
+                print(f"[TimeLLM] 警告: cwpr_use_kmeans=True 但 cwpr_proto_init='{cwpr_proto_init}'，"
+                      f"K-Means仅在word_embed模式下有效，将忽略use_kmeans参数")
+                cwpr_use_kmeans = False
+            
+            # Top-N仅在K-Means模式下有效
+            if cwpr_top_n_words is not None and not cwpr_use_kmeans:
+                print(f"[TimeLLM] 警告: cwpr_top_n_words={cwpr_top_n_words} 但 cwpr_use_kmeans=False，"
+                      f"Top-N仅在K-Means模式下有效，将忽略top_n_words参数")
+                cwpr_top_n_words = None
+            
+            # 语义过滤选项：选择与时间序列/小波特征相关的词汇
+            cwpr_use_semantic_filter = bool(getattr(configs, 'cwpr_use_semantic_filter', 0))
+            
+            self.cwpr_layer = CWPRReprogrammingLayer(
+                d_model=configs.d_model,
+                d_llm=self.d_llm,
+                n_heads=cwpr_n_heads,
+                num_prototypes=cwpr_num_prototypes,
+                d_keys=self.d_ff // cwpr_n_heads,  # 使用d_ff计算每个头的维度
+                attention_dropout=cwpr_dropout,
+                gate_bias_init=cwpr_gate_bias_init,
+                init_method=cwpr_proto_init,
+                word_embeddings=word_embeddings_for_init,
+                use_kmeans=cwpr_use_kmeans,
+                top_n_words=cwpr_top_n_words,
+                tokenizer=self.tokenizer if cwpr_top_n_words is not None else None,
+                use_semantic_filter=cwpr_use_semantic_filter
+            )
+            self.reprogramming_layer = None
+            print(f"[TimeLLM] ✅ CWPR架构已启用")
+            print(f"[TimeLLM]   使用 CWPRReprogrammingLayer (原型数={cwpr_num_prototypes}, 头数={cwpr_n_heads})")
+            init_method_desc = f"{cwpr_proto_init}"
+            if cwpr_proto_init == 'word_embed' and cwpr_use_kmeans:
+                if cwpr_top_n_words is not None:
+                    init_method_desc += f" (K-Means聚类, Top-{cwpr_top_n_words}常用词)"
+                else:
+                    init_method_desc += " (K-Means聚类, 全词表)"
+            elif cwpr_proto_init == 'word_embed':
+                init_method_desc += " (随机采样)"
+            print(f"[TimeLLM]   原型初始化: {init_method_desc}")
+            print(f"[TimeLLM]   数据流: WIST(forward_separated) → e_cA/e_detail → CWPR → LLM")
+        else:
+            # 使用原版 ReprogrammingLayer 或 DualReprogrammingLayer
+            if self.use_dual_prototypes:
+                # 使用分离原型层
+                fusion_method = getattr(configs, 'dual_proto_fusion_method', 'mean')
+                self.reprogramming_layer = DualReprogrammingLayer(
+                    configs.d_model, 
+                    configs.n_heads, 
+                    self.d_ff // configs.n_heads, 
+                    self.d_llm,
+                    attention_dropout=configs.dropout,
+                    fusion_method=fusion_method
+                )
+                self.cwpr_layer = None
+                num_trend = getattr(self, 'num_trend_tokens', 1000)
+                num_detail = getattr(self, 'num_detail_tokens', 1000)
+                print(f"[TimeLLM] 使用 DualReprogrammingLayer (分离原型: {num_trend}+{num_detail}, 融合方法={fusion_method})")
+            else:
+                # 使用原版 ReprogrammingLayer
+                self.reprogramming_layer = ReprogrammingLayer(configs.d_model, configs.n_heads, self.d_ff, self.d_llm)
+                self.cwpr_layer = None
+                print("[TimeLLM] 使用 ReprogrammingLayer (原版)")
 
         self.patch_nums = int((configs.seq_len - self.patch_len) / self.stride + 2)
         self.head_nf = self.d_ff * self.patch_nums
@@ -369,12 +472,35 @@ class Model(nn.Module):
         prompt = self.tokenizer(prompt, return_tensors="pt", padding=True, truncation=True, max_length=2048).input_ids
         prompt_embeddings = self.llm_model.get_input_embeddings()(prompt.to(x_enc.device))  # (batch, prompt_token, dim)
 
-        source_embeddings = self.mapping_layer(self.word_embeddings.permute(1, 0)).permute(1, 0)
-
         x_enc = x_enc.permute(0, 2, 1).contiguous()
         # 直接使用 float32 避免数据类型不匹配问题
-        enc_out, n_vars = self.patch_embedding(x_enc.float())
-        enc_out = self.reprogramming_layer(enc_out, source_embeddings, source_embeddings)
+        if self.use_cwpr:
+            # CWPR 模式：使用分离的特征输出
+            e_cA, e_detail, n_vars = self.patch_embedding.forward_separated(x_enc.float())
+            enc_out = self.cwpr_layer(e_cA, e_detail)
+        else:
+            # 原版模式或分离原型模式
+            if self.use_dual_prototypes and self.wavelet_mode == 'wist':
+                # 分离原型模式 + WIST：使用分离的特征输出，分别学习
+                e_cA, e_detail, n_vars = self.patch_embedding.forward_separated(x_enc.float())
+                # 生成趋势和细节两个原型库
+                trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                # 分别使用趋势特征和细节特征进行学习
+                enc_out = self.reprogramming_layer(e_cA, e_detail, trend_prototypes, detail_prototypes)
+            elif self.use_dual_prototypes:
+                # 分离原型模式但非 WIST：使用融合后的特征（向后兼容）
+                enc_out, n_vars = self.patch_embedding(x_enc.float())
+                # 生成趋势和细节两个原型库
+                trend_prototypes = self.trend_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_trend_tokens, d_llm)
+                detail_prototypes = self.detail_mapping(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (num_detail_tokens, d_llm)
+                # 使用融合后的特征（两个流都使用相同的输入，但原型库不同）
+                enc_out = self.reprogramming_layer(enc_out, enc_out, trend_prototypes, detail_prototypes)
+            else:
+                # 原版模式：使用融合后的特征和单一原型库
+                enc_out, n_vars = self.patch_embedding(x_enc.float())
+                source_embeddings = self.mapping_layer(self.word_embeddings.permute(1, 0)).permute(1, 0)  # (1000, d_llm)
+                enc_out = self.reprogramming_layer(enc_out, source_embeddings, source_embeddings)
         llama_enc_out = torch.cat([prompt_embeddings, enc_out], dim=1)
         dec_out = self.llm_model(inputs_embeds=llama_enc_out).last_hidden_state
         dec_out = dec_out[:, :, :self.d_ff]
@@ -591,3 +717,86 @@ class ReprogrammingLayer(nn.Module):
         reprogramming_embedding = torch.einsum("bhls,she->blhe", A, value_embedding)
 
         return reprogramming_embedding
+
+
+class DualReprogrammingLayer(nn.Module):
+    """
+    双原型重编程层
+    
+    将原版的 1000 个原型词拆分为 N 个趋势原型和 N 个细节原型（默认 N=1000），
+    分别用于趋势流和细节流的 Cross-Attention。
+    
+    架构：
+    1. 趋势流：trend_embedding -> Cross-Attention(trend_prototypes) -> sem_trend
+    2. 细节流：detail_embedding -> Cross-Attention(detail_prototypes) -> sem_detail
+    3. 融合：简单平均或加权融合
+    
+    当与 WIST 结合使用时：
+    - trend_embedding: WIST 输出的 e_cA（低频趋势特征）
+    - detail_embedding: WIST 输出的 e_detail（高频细节特征）
+    
+    当不使用 WIST 时（向后兼容）：
+    - trend_embedding 和 detail_embedding 可以是相同的融合特征
+    - 两个流使用相同的输入但不同的原型库
+    
+    Args:
+        d_model: 输入特征维度
+        n_heads: 注意力头数
+        d_keys: 每个头的键维度（默认 d_model // n_heads）
+        d_llm: LLM嵌入维度
+        attention_dropout: Attention dropout率
+        fusion_method: 融合方法 ('mean', 'weighted')
+    """
+    
+    def __init__(self, d_model, n_heads, d_keys=None, d_llm=None, attention_dropout=0.1, fusion_method='mean'):
+        super(DualReprogrammingLayer, self).__init__()
+        
+        # 创建两个独立的 ReprogrammingLayer
+        self.trend_reprogramming = ReprogrammingLayer(d_model, n_heads, d_keys, d_llm, attention_dropout)
+        self.detail_reprogramming = ReprogrammingLayer(d_model, n_heads, d_keys, d_llm, attention_dropout)
+        
+        self.fusion_method = fusion_method
+        
+        # 如果使用加权融合，添加可学习的权重
+        if fusion_method == 'weighted':
+            self.fusion_weight = nn.Parameter(torch.tensor(0.5))  # 初始权重 0.5（平衡）
+        else:
+            self.fusion_weight = None
+    
+    def forward(self, trend_embedding, detail_embedding, trend_prototypes, detail_prototypes):
+        """
+        Args:
+            trend_embedding: (B, L, d_model) 趋势特征（来自 WIST 的 e_cA）
+            detail_embedding: (B, L, d_model) 细节特征（来自 WIST 的 e_detail）
+            trend_prototypes: (N, d_llm) 趋势原型库，N 由 dual_proto_num_tokens 指定
+            detail_prototypes: (N, d_llm) 细节原型库，N 由 dual_proto_num_tokens 指定
+        
+        Returns:
+            output: (B, L, d_llm) 语义空间表示
+        """
+        # 趋势流：使用趋势特征和趋势原型库
+        sem_trend = self.trend_reprogramming(
+            trend_embedding, 
+            trend_prototypes, 
+            trend_prototypes
+        )  # (B, L, d_llm)
+        
+        # 细节流：使用细节特征和细节原型库
+        sem_detail = self.detail_reprogramming(
+            detail_embedding,
+            detail_prototypes,
+            detail_prototypes
+        )  # (B, L, d_llm)
+        
+        # 融合
+        if self.fusion_method == 'mean':
+            # 简单平均
+            output = (sem_trend + sem_detail) / 2
+        elif self.fusion_method == 'weighted':
+            # 加权融合（可学习权重）
+            weight = torch.sigmoid(self.fusion_weight)
+            output = weight * sem_trend + (1 - weight) * sem_detail
+        else:
+            raise ValueError(f"未知的融合方法: {self.fusion_method}")
+        
+        return output

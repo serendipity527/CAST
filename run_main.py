@@ -111,6 +111,8 @@ parser.add_argument('--freq_attention_version', type=int, default=1,
                     help='频率通道注意力版本 (仅use_freq_attention=1时生效): 1=V1(GAP,Instance-wise), 2=V2(1D Conv,Patch-wise), 3=V3(Global-Local双流融合)')
 parser.add_argument('--freq_attn_kernel_size', type=int, default=3,
                     help='V2/V3版本的1D卷积核大小 (仅freq_attention_version=2或3时生效): 1/3/5/7, 控制局部上下文范围')
+parser.add_argument('--use_hf_freq_attention', type=int, default=1,
+                    help='是否使用频率注意力V1进行高频融合 (仅用于forward_separated, CWPR模式): 0=关闭(使用门控融合), 1=开启(使用频率注意力V1, 默认)')
 
 # 频段 Embedding (Frequency Embedding) 配置
 parser.add_argument('--use_freq_embedding', type=int, default=0,
@@ -133,6 +135,38 @@ parser.add_argument('--wavelet_prompt_method', type=str, default='haar',
                     help='小波Prompt分析方法: haar=Haar小波分解, simple=简化频域分析')
 parser.add_argument('--prompt_hfer_threshold', type=float, default=0.15,
                     help='高频能量占比阈值，用于调整平滑度等级判断 (默认0.15)')
+
+# CWPR 配置参数 (因果小波原型重编程层)
+parser.add_argument('--use_cwpr', type=int, default=0,
+                    help='是否启用CWPR重编程层: 0=关闭(使用原版ReprogrammingLayer), 1=开启(使用CWPR)')
+parser.add_argument('--cwpr_num_prototypes', type=int, default=256,
+                    help='CWPR原型库大小 K (默认256)')
+parser.add_argument('--cwpr_n_heads', type=int, default=8,
+                    help='CWPR Cross-Attention头数 (默认8)')
+parser.add_argument('--cwpr_dropout', type=float, default=0.1,
+                    help='CWPR Attention dropout率 (默认0.1)')
+parser.add_argument('--cwpr_gate_bias_init', type=float, default=2.0,
+                    help='CWPR语义门控偏置初始化值 (默认2.0, sigmoid(2.0)≈88%%偏向趋势)')
+parser.add_argument('--cwpr_proto_init', type=str, default='random',
+                    choices=['random', 'word_embed'],
+                    help='CWPR原型库初始化方法: random=随机初始化, word_embed=从词嵌入初始化')
+parser.add_argument('--cwpr_use_kmeans', type=int, default=0,
+                    help='CWPR是否使用K-Means聚类初始化原型 (仅当cwpr_proto_init=word_embed时有效, 默认0=随机采样, 1=K-Means聚类)')
+parser.add_argument('--cwpr_top_n_words', type=int, default=None,
+                    help='CWPR K-Means初始化时使用的Top-N常用词数量 (None=使用全词表, 例如5000=仅使用前5000个最常用词, 可显著加速聚类)')
+parser.add_argument('--cwpr_use_semantic_filter', type=int, default=0,
+                    help='CWPR是否使用语义过滤选择词汇 (0=仅词频排序, 1=结合语义相似度选择与时间序列/小波特征相关的词汇)')
+
+# 分离原型配置 (仅用于原版 ReprogrammingLayer，不影响 CWPR)
+parser.add_argument('--use_dual_prototypes', type=int, default=0,
+                    help='是否启用分离原型模式 (0=原版1000个共享原型, 1=分离的趋势原型+细节原型, 仅当use_cwpr=0时有效)')
+parser.add_argument('--dual_proto_trend_tokens', type=int, default=1000,
+                    help='趋势原型的数量 (默认1000, 仅当use_dual_prototypes=1时有效)')
+parser.add_argument('--dual_proto_detail_tokens', type=int, default=1000,
+                    help='细节原型的数量 (默认1000, 仅当use_dual_prototypes=1时有效)')
+parser.add_argument('--dual_proto_fusion_method', type=str, default='mean',
+                    choices=['mean', 'weighted'],
+                    help='分离原型的融合方法 (mean=简单平均, weighted=可学习加权融合, 仅当use_dual_prototypes=1时有效)')
 
 # 频率解耦输出头 (Tri-Band Decoupled Head) 配置
 parser.add_argument('--use_freq_decoupled_head', type=int, default=0,

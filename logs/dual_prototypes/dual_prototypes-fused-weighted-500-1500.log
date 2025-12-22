@@ -1,0 +1,971 @@
+nohup: 忽略输入
+/home/dmx_MT/.conda/envs/timellm/lib/python3.11/site-packages/torch/cuda/__init__.py:54: FutureWarning: The pynvml package is deprecated. Please install nvidia-ml-py instead. If you did not install pynvml directly, please report this to the maintainers of the package that installed pynvml for you.
+  import pynvml  # type: ignore[import]
+[2025-12-22 00:47:59,572] [INFO] [real_accelerator.py:191:get_accelerator] Setting ds_accelerator to cuda (auto detect)
+[2025-12-22 00:48:00,151] [INFO] [comm.py:637:init_distributed] cdb=None
+[2025-12-22 00:48:00,152] [INFO] [comm.py:668:init_distributed] Initializing TorchBackend in DeepSpeed with backend nccl
+[CausalSWT] 创建因果平稳小波变换
+  - 小波类型: haar
+  - 滤波器长度: 2
+  - 分解层数: 2
+  - 输出频段数: 3
+  - 特性: 严格因果（仅使用过去数据）
+======================================================================
+[WIST-PE] Wavelet-Informed Spatio-Temporal Patch Embedding 已启用
+======================================================================
+  ├─ 小波基类型: haar
+  ├─ 分解层数: 2
+  ├─ 频段数量: 3 (1个低频 + 2个高频)
+  ├─ Patch 长度: 16
+  ├─ Stride: 8
+  ├─ 输出维度: 64
+  ├─ 频段 Embedding: ❌ 未启用
+  ├─ 投影方式: ✅ 因果卷积 (CausalConv1d, kernel=3)
+  ├─ 融合模式: ✅ 分层金字塔融合 (Pyramid Fusion)
+  │   ├─ 中频 Dropout: p=0.2
+  │   ├─ 高频 Dropout: p=0.2
+  │   └─ 融合顺序: cD_1 → cD_2 → ... → cD_n → cA
+  ├─ 高频融合机制: ✅ 频率注意力V1 (用于forward_separated/CWPR)
+  │   └─ 仅融合高频频段 [cD_n, ..., cD_1]，低频cA单独输出
+  ├─ 全频段融合机制: 门控融合 (Gate Fusion)
+  ├─ 门控初始化: bias=2.0 (低频≈88%)
+  ├─ 软阈值去噪: ✅ 启用 (可学习阈值)
+  ├─ 位置编码: ❌ 关闭
+  └─ 特性: 全局因果小波分解 + 差异化处理 + 金字塔融合
+======================================================================
+[TimeLLM] 使用 WISTPatchEmbedding (WIST-PE 全局因果小波方案)
+[TimeLLM] ✅ 启用分离原型模式: 500 趋势 + 1500 细节
+[TimeLLM] 使用 DualReprogrammingLayer (分离原型: 500+1500, 融合方法=weighted)
+[TimeLLM] 使用 FlattenHead (原版输出头)
+[TimeLLM] 使用原版Prompt（无小波特征）
+[2025-12-22 00:48:07,534] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed info: version=0.14.0, git-hash=unknown, git-branch=unknown
+[2025-12-22 00:48:10,731] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Flops Profiler Enabled: False
+[2025-12-22 00:48:10,733] [INFO] [logging.py:96:log_dist] [Rank 0] Using client Optimizer as basic optimizer
+[2025-12-22 00:48:10,733] [INFO] [logging.py:96:log_dist] [Rank 0] Removing param_group that has no 'params' in the basic Optimizer
+[2025-12-22 00:48:10,735] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Basic Optimizer = Adam
+[2025-12-22 00:48:10,735] [INFO] [utils.py:56:is_zero_supported_optimizer] Checking ZeRO support for optimizer=Adam type=<class 'torch.optim.adam.Adam'>
+[2025-12-22 00:48:10,735] [INFO] [logging.py:96:log_dist] [Rank 0] Creating torch.bfloat16 ZeRO stage 2 optimizer
+[2025-12-22 00:48:10,735] [INFO] [stage_1_and_2.py:149:__init__] Reduce bucket size 200000000
+[2025-12-22 00:48:10,735] [INFO] [stage_1_and_2.py:150:__init__] Allgather bucket size 200000000
+[2025-12-22 00:48:10,735] [INFO] [stage_1_and_2.py:151:__init__] CPU Offload: False
+[2025-12-22 00:48:10,735] [INFO] [stage_1_and_2.py:152:__init__] Round robin gradient partitioning: False
+[2025-12-22 00:48:11,827] [INFO] [utils.py:800:see_memory_usage] Before initializing optimizer states
+[2025-12-22 00:48:11,828] [INFO] [utils.py:801:see_memory_usage] MA 0.74 GB         Max_MA 0.93 GB         CA 0.95 GB         Max_CA 1 GB 
+[2025-12-22 00:48:11,828] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 98.03 GB, percent = 19.5%
+[2025-12-22 00:48:12,091] [INFO] [utils.py:800:see_memory_usage] After initializing optimizer states
+[2025-12-22 00:48:12,092] [INFO] [utils.py:801:see_memory_usage] MA 0.74 GB         Max_MA 1.13 GB         CA 1.34 GB         Max_CA 1 GB 
+[2025-12-22 00:48:12,092] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 98.03 GB, percent = 19.5%
+[2025-12-22 00:48:12,093] [INFO] [stage_1_and_2.py:539:__init__] optimizer state initialized
+[2025-12-22 00:48:12,354] [INFO] [utils.py:800:see_memory_usage] After initializing ZeRO optimizer
+[2025-12-22 00:48:12,356] [INFO] [utils.py:801:see_memory_usage] MA 0.74 GB         Max_MA 0.74 GB         CA 1.34 GB         Max_CA 1 GB 
+[2025-12-22 00:48:12,356] [INFO] [utils.py:808:see_memory_usage] CPU Virtual Memory:  used = 98.09 GB, percent = 19.5%
+[2025-12-22 00:48:12,358] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed Final Optimizer = Adam
+[2025-12-22 00:48:12,358] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed using client LR scheduler
+[2025-12-22 00:48:12,358] [INFO] [logging.py:96:log_dist] [Rank 0] DeepSpeed LR Scheduler = None
+[2025-12-22 00:48:12,358] [INFO] [logging.py:96:log_dist] [Rank 0] step=0, skipped=0, lr=[4.000000000000002e-06], mom=[(0.95, 0.999)]
+[2025-12-22 00:48:12,359] [INFO] [config.py:996:print] DeepSpeedEngine configuration:
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   activation_checkpointing_config  {
+    "partition_activations": false, 
+    "contiguous_memory_optimization": false, 
+    "cpu_checkpointing": false, 
+    "number_checkpoints": null, 
+    "synchronize_checkpoint_boundary": false, 
+    "profile": false
+}
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   aio_config ................... {'block_size': 1048576, 'queue_depth': 8, 'thread_count': 1, 'single_submit': False, 'overlap_events': True}
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   amp_enabled .................. False
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   amp_params ................... False
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   autotuning_config ............ {
+    "enabled": false, 
+    "start_step": null, 
+    "end_step": null, 
+    "metric_path": null, 
+    "arg_mappings": null, 
+    "metric": "throughput", 
+    "model_info": null, 
+    "results_dir": "autotuning_results", 
+    "exps_dir": "autotuning_exps", 
+    "overwrite": true, 
+    "fast": true, 
+    "start_profile_step": 3, 
+    "end_profile_step": 5, 
+    "tuner_type": "gridsearch", 
+    "tuner_early_stopping": 5, 
+    "tuner_num_trials": 50, 
+    "model_info_path": null, 
+    "mp_size": 1, 
+    "max_train_batch_size": null, 
+    "min_train_batch_size": 1, 
+    "max_train_micro_batch_size_per_gpu": 1.024000e+03, 
+    "min_train_micro_batch_size_per_gpu": 1, 
+    "num_tuning_micro_batch_sizes": 3
+}
+[2025-12-22 00:48:12,360] [INFO] [config.py:1000:print]   bfloat16_enabled ............. True
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   bfloat16_immediate_grad_update  False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   checkpoint_parallel_write_pipeline  False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   checkpoint_tag_validation_enabled  True
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   checkpoint_tag_validation_fail  False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   comms_config ................. <deepspeed.comm.config.DeepSpeedCommsConfig object at 0x7f76a5656f90>
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   communication_data_type ...... None
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   compile_config ............... enabled=False backend='inductor' kwargs={}
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   compression_config ........... {'weight_quantization': {'shared_parameters': {'enabled': False, 'quantizer_kernel': False, 'schedule_offset': 0, 'quantize_groups': 1, 'quantize_verbose': False, 'quantization_type': 'symmetric', 'quantize_weight_in_forward': False, 'rounding': 'nearest', 'fp16_mixed_quantize': False, 'quantize_change_ratio': 0.001}, 'different_groups': {}}, 'activation_quantization': {'shared_parameters': {'enabled': False, 'quantization_type': 'symmetric', 'range_calibration': 'dynamic', 'schedule_offset': 1000}, 'different_groups': {}}, 'sparse_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'row_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'head_pruning': {'shared_parameters': {'enabled': False, 'method': 'topk', 'schedule_offset': 1000}, 'different_groups': {}}, 'channel_pruning': {'shared_parameters': {'enabled': False, 'method': 'l1', 'schedule_offset': 1000}, 'different_groups': {}}, 'layer_reduction': {'enabled': False}}
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   curriculum_enabled_legacy .... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   curriculum_params_legacy ..... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   data_efficiency_config ....... {'enabled': False, 'seed': 1234, 'data_sampling': {'enabled': False, 'num_epochs': 1000, 'num_workers': 0, 'curriculum_learning': {'enabled': False}}, 'data_routing': {'enabled': False, 'random_ltd': {'enabled': False, 'layer_token_lr_schedule': {'enabled': False}}}}
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   data_efficiency_enabled ...... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   dataloader_drop_last ......... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   disable_allgather ............ False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   dump_state ................... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   dynamic_loss_scale_args ...... None
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_enabled ........... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_gas_boundary_resolution  1
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_layer_name ........ bert.encoder.layer
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_layer_num ......... 0
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_max_iter .......... 100
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_stability ......... 1e-06
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_tol ............... 0.01
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   eigenvalue_verbose ........... False
+[2025-12-22 00:48:12,361] [INFO] [config.py:1000:print]   elasticity_enabled ........... False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   flops_profiler_config ........ {
+    "enabled": false, 
+    "recompute_fwd_factor": 0.0, 
+    "profile_step": 1, 
+    "module_depth": -1, 
+    "top_modules": 1, 
+    "detailed": true, 
+    "output_file": null
+}
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   fp16_auto_cast ............... None
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   fp16_enabled ................. False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   fp16_master_weights_and_gradients  False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   global_rank .................. 0
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   grad_accum_dtype ............. None
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   gradient_accumulation_steps .. 1
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   gradient_clipping ............ 0.0
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   gradient_predivide_factor .... 1.0
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   graph_harvesting ............. False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   hybrid_engine ................ enabled=False max_out_tokens=512 inference_tp_size=1 release_inference_cache=False pin_parameters=True tp_gather_partition_size=8
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   initial_dynamic_scale ........ 1
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   load_universal_checkpoint .... False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   loss_scale ................... 1.0
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   memory_breakdown ............. False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   mics_hierarchial_params_gather  False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   mics_shard_size .............. -1
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   monitor_config ............... tensorboard=TensorBoardConfig(enabled=False, output_path='', job_name='DeepSpeedJobName') wandb=WandbConfig(enabled=False, group=None, team=None, project='deepspeed') csv_monitor=CSVConfig(enabled=False, output_path='', job_name='DeepSpeedJobName') enabled=False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   nebula_config ................ {
+    "enabled": false, 
+    "persistent_storage_path": null, 
+    "persistent_time_interval": 100, 
+    "num_of_version_in_retention": 2, 
+    "enable_nebula_load": true, 
+    "load_path": null
+}
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   optimizer_legacy_fusion ...... False
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   optimizer_name ............... None
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   optimizer_params ............. None
+[2025-12-22 00:48:12,362] [INFO] [config.py:1000:print]   pipeline ..................... {'stages': 'auto', 'partition': 'best', 'seed_layers': False, 'activation_checkpoint_interval': 0, 'pipe_partitioned': True, 'grad_partitioned': True}
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   pld_enabled .................. False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   pld_params ................... False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   prescale_gradients ........... False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   scheduler_name ............... None
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   scheduler_params ............. None
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   seq_parallel_communication_data_type  torch.float32
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   sparse_attention ............. None
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   sparse_gradients_enabled ..... False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   steps_per_print .............. inf
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   train_batch_size ............. 24
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   train_micro_batch_size_per_gpu  24
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   use_data_before_expert_parallel_  False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   use_node_local_storage ....... False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   wall_clock_breakdown ......... False
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   weight_quantization_config ... None
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   world_size ................... 1
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   zero_allow_untested_optimizer  True
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   zero_config .................. stage=2 contiguous_gradients=True reduce_scatter=True reduce_bucket_size=200000000 use_multi_rank_bucket_allreduce=True allgather_partitions=True allgather_bucket_size=200000000 overlap_comm=True load_from_fp32_weights=True elastic_checkpoint=False offload_param=None offload_optimizer=None sub_group_size=1000000000 cpu_offload_param=None cpu_offload_use_pin_memory=None cpu_offload=None prefetch_bucket_size=50,000,000 param_persistence_threshold=100,000 model_persistence_threshold=sys.maxsize max_live_parameters=1,000,000,000 max_reuse_distance=1,000,000,000 gather_16bit_weights_on_model_save=False stage3_gather_fp16_weights_on_model_save=False ignore_unused_parameters=True legacy_stage1=False round_robin_gradients=False zero_hpz_partition_size=1 zero_quantized_weights=False zero_quantized_nontrainable_weights=False zero_quantized_gradients=False mics_shard_size=-1 mics_hierarchical_params_gather=False memory_efficient_linear=True pipeline_loading_checkpoint=False override_module_apply=True
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   zero_enabled ................. True
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   zero_force_ds_cpu_optimizer .. True
+[2025-12-22 00:48:12,363] [INFO] [config.py:1000:print]   zero_optimization_stage ...... 2
+[2025-12-22 00:48:12,363] [INFO] [config.py:986:print_user_config]   json = {
+    "bf16": {
+        "enabled": true, 
+        "auto_cast": true
+    }, 
+    "zero_optimization": {
+        "stage": 2, 
+        "allgather_partitions": true, 
+        "allgather_bucket_size": 2.000000e+08, 
+        "overlap_comm": true, 
+        "reduce_scatter": true, 
+        "reduce_bucket_size": 2.000000e+08, 
+        "contiguous_gradients": true, 
+        "sub_group_size": 1.000000e+09
+    }, 
+    "gradient_accumulation_steps": 1, 
+    "train_batch_size": 24, 
+    "train_micro_batch_size_per_gpu": 24, 
+    "steps_per_print": inf, 
+    "wall_clock_breakdown": false, 
+    "fp16": {
+        "enabled": false
+    }, 
+    "zero_allow_untested_optimizer": true
+}
+
+1it [00:02,  2.37s/it]
+2it [00:02,  1.10s/it]
+	iters: 100, epoch: 1 | loss: 0.5449664
+	speed: 0.2388s/iter; left time: 8365.8882s
+	iters: 200, epoch: 1 | loss: 0.6535732
+	speed: 0.1611s/iter; left time: 5626.0290s
+	iters: 300, epoch: 1 | loss: 0.9155326
+	speed: 0.1764s/iter; left time: 6143.2314s
+	iters: 400, epoch: 1 | loss: 0.9181457
+	speed: 0.1660s/iter; left time: 5766.1206s
+	iters: 500, epoch: 1 | loss: 0.4866322
+	speed: 0.1601s/iter; left time: 5545.2998s
+	iters: 600, epoch: 1 | loss: 0.7207261
+	speed: 0.1686s/iter; left time: 5822.3243s
+	iters: 700, epoch: 1 | loss: 0.4109969
+	speed: 0.1667s/iter; left time: 5739.4249s
+	iters: 800, epoch: 1 | loss: 0.4188866
+	speed: 0.1647s/iter; left time: 5654.6850s
+	iters: 900, epoch: 1 | loss: 0.4727105
+	speed: 0.1721s/iter; left time: 5892.0114s
+	iters: 1000, epoch: 1 | loss: 0.3503827
+	speed: 0.1586s/iter; left time: 5411.7376s
+	iters: 1100, epoch: 1 | loss: 0.2781205
+	speed: 0.1449s/iter; left time: 4932.5524s
+	iters: 1200, epoch: 1 | loss: 0.4599259
+	speed: 0.1423s/iter; left time: 4828.2617s
+	iters: 1300, epoch: 1 | loss: 0.3403952
+	speed: 0.1453s/iter; left time: 4916.2600s
+	iters: 1400, epoch: 1 | loss: 0.5126805
+	speed: 0.1364s/iter; left time: 4600.1369s
+	iters: 1500, epoch: 1 | loss: 0.2695282
+	speed: 0.1427s/iter; left time: 4797.7630s
+	iters: 1600, epoch: 1 | loss: 0.5523508
+	speed: 0.1393s/iter; left time: 4671.5718s
+	iters: 1700, epoch: 1 | loss: 0.4270668
+	speed: 0.1413s/iter; left time: 4725.2509s
+	iters: 1800, epoch: 1 | loss: 0.2973578
+	speed: 0.1404s/iter; left time: 4679.4880s
+	iters: 1900, epoch: 1 | loss: 0.4711143
+	speed: 0.1416s/iter; left time: 4705.8071s
+	iters: 2000, epoch: 1 | loss: 0.5415762
+	speed: 0.1435s/iter; left time: 4753.6465s
+	iters: 2100, epoch: 1 | loss: 0.5643633
+	speed: 0.1636s/iter; left time: 5402.3076s
+	iters: 2200, epoch: 1 | loss: 0.5825309
+	speed: 0.1708s/iter; left time: 5625.5500s
+	iters: 2300, epoch: 1 | loss: 0.3449200
+	speed: 0.1693s/iter; left time: 5558.4402s
+Epoch: 1 cost time: 367.56988883018494
+
+
+Epoch: 1 | Train Loss: 0.5085302 Vali Loss: 0.7603716 Test Loss: 0.4050769 MAE Loss: 0.4272614
+lr = 0.0000040000
+Updating learning rate to 4.000000000000002e-06
+
+1it [00:01,  1.07s/it]
+	iters: 100, epoch: 2 | loss: 0.2778517
+	speed: 1.6795s/iter; left time: 54901.6353s
+	iters: 200, epoch: 2 | loss: 0.3092254
+	speed: 0.1699s/iter; left time: 5536.9382s
+	iters: 300, epoch: 2 | loss: 0.3334467
+	speed: 0.1676s/iter; left time: 5445.1936s
+	iters: 400, epoch: 2 | loss: 0.3776968
+	speed: 0.1650s/iter; left time: 5345.4063s
+	iters: 500, epoch: 2 | loss: 0.3399701
+	speed: 0.1686s/iter; left time: 5443.8804s
+	iters: 600, epoch: 2 | loss: 0.3716730
+	speed: 0.1679s/iter; left time: 5406.0564s
+	iters: 700, epoch: 2 | loss: 0.3698077
+	speed: 0.1592s/iter; left time: 5107.9643s
+	iters: 800, epoch: 2 | loss: 0.6339510
+	speed: 0.1687s/iter; left time: 5396.9384s
+	iters: 900, epoch: 2 | loss: 0.2924689
+	speed: 0.1656s/iter; left time: 5279.3464s
+	iters: 1000, epoch: 2 | loss: 0.3835735
+	speed: 0.1583s/iter; left time: 5031.4947s
+	iters: 1100, epoch: 2 | loss: 0.3060189
+	speed: 0.1415s/iter; left time: 4483.6823s
+	iters: 1200, epoch: 2 | loss: 0.3549649
+	speed: 0.1419s/iter; left time: 4483.8389s
+	iters: 1300, epoch: 2 | loss: 0.3109659
+	speed: 0.1352s/iter; left time: 4256.2042s
+	iters: 1400, epoch: 2 | loss: 0.4118043
+	speed: 0.1431s/iter; left time: 4490.8903s
+	iters: 1500, epoch: 2 | loss: 0.3904804
+	speed: 0.1425s/iter; left time: 4458.0267s
+	iters: 1600, epoch: 2 | loss: 0.4558061
+	speed: 0.1435s/iter; left time: 4474.7720s
+	iters: 1700, epoch: 2 | loss: 0.3038580
+	speed: 0.1445s/iter; left time: 4493.2804s
+	iters: 1800, epoch: 2 | loss: 0.3465558
+	speed: 0.1443s/iter; left time: 4471.8949s
+	iters: 1900, epoch: 2 | loss: 0.4599389
+	speed: 0.1457s/iter; left time: 4500.0248s
+	iters: 2000, epoch: 2 | loss: 0.4339221
+	speed: 0.1344s/iter; left time: 4139.3984s
+	iters: 2100, epoch: 2 | loss: 0.5113907
+	speed: 0.1644s/iter; left time: 5044.2290s
+	iters: 2200, epoch: 2 | loss: 0.3420278
+	speed: 0.1695s/iter; left time: 5185.5149s
+	iters: 2300, epoch: 2 | loss: 0.7074018
+	speed: 0.1678s/iter; left time: 5114.8642s
+Epoch: 2 cost time: 365.27796149253845
+
+
+Epoch: 2 | Train Loss: 0.4112433 Vali Loss: 0.7268660 Test Loss: 0.3872861 MAE Loss: 0.4135484
+Updating learning rate to 2.000000000000001e-06
+
+1it [00:01,  1.08s/it]
+	iters: 100, epoch: 3 | loss: 0.6337675
+	speed: 1.6612s/iter; left time: 50411.1414s
+	iters: 200, epoch: 3 | loss: 0.3525795
+	speed: 0.1655s/iter; left time: 5006.6787s
+	iters: 300, epoch: 3 | loss: 0.3168446
+	speed: 0.1623s/iter; left time: 4892.4867s
+	iters: 400, epoch: 3 | loss: 0.3613174
+	speed: 0.1651s/iter; left time: 4961.6639s
+	iters: 500, epoch: 3 | loss: 0.3194115
+	speed: 0.1645s/iter; left time: 4925.6066s
+	iters: 600, epoch: 3 | loss: 0.3896128
+	speed: 0.1595s/iter; left time: 4760.8528s
+	iters: 700, epoch: 3 | loss: 0.2946397
+	speed: 0.1669s/iter; left time: 4964.4498s
+	iters: 800, epoch: 3 | loss: 0.2507327
+	speed: 0.1614s/iter; left time: 4785.4810s
+	iters: 900, epoch: 3 | loss: 0.2575453
+	speed: 0.1632s/iter; left time: 4822.2911s
+	iters: 1000, epoch: 3 | loss: 0.2791447
+	speed: 0.1449s/iter; left time: 4266.8123s
+	iters: 1100, epoch: 3 | loss: 0.5087287
+	speed: 0.1329s/iter; left time: 3899.8368s
+	iters: 1200, epoch: 3 | loss: 0.2982287
+	speed: 0.1416s/iter; left time: 4141.8119s
+	iters: 1300, epoch: 3 | loss: 0.6534767
+	speed: 0.1382s/iter; left time: 4029.5254s
+	iters: 1400, epoch: 3 | loss: 0.3389737
+	speed: 0.1351s/iter; left time: 3924.4247s
+	iters: 1500, epoch: 3 | loss: 0.3323798
+	speed: 0.1418s/iter; left time: 4105.8939s
+	iters: 1600, epoch: 3 | loss: 0.3087099
+	speed: 0.1404s/iter; left time: 4049.7153s
+	iters: 1700, epoch: 3 | loss: 0.3364770
+	speed: 0.1337s/iter; left time: 3842.7134s
+	iters: 1800, epoch: 3 | loss: 0.4774201
+	speed: 0.1444s/iter; left time: 4137.2414s
+	iters: 1900, epoch: 3 | loss: 0.3297500
+	speed: 0.1402s/iter; left time: 4001.5417s
+	iters: 2000, epoch: 3 | loss: 0.4974538
+	speed: 0.1559s/iter; left time: 4435.5612s
+	iters: 2100, epoch: 3 | loss: 0.3183236
+	speed: 0.1673s/iter; left time: 4742.7935s
+	iters: 2200, epoch: 3 | loss: 0.3182052
+	speed: 0.1617s/iter; left time: 4567.9839s
+	iters: 2300, epoch: 3 | loss: 0.2931106
+	speed: 0.1686s/iter; left time: 4744.2417s
+Epoch: 3 cost time: 359.1539902687073
+
+
+Epoch: 3 | Train Loss: 0.3963679 Vali Loss: 0.7145769 Test Loss: 0.3831737 MAE Loss: 0.4112416
+Updating learning rate to 1.0000000000000006e-06
+
+	iters: 100, epoch: 4 | loss: 0.4229304
+	speed: 1.6706s/iter; left time: 46786.5167s
+	iters: 200, epoch: 4 | loss: 0.3059528
+	speed: 0.1547s/iter; left time: 4317.2028s
+	iters: 300, epoch: 4 | loss: 0.4453093
+	speed: 0.1680s/iter; left time: 4669.8937s
+	iters: 400, epoch: 4 | loss: 0.6042169
+	speed: 0.1659s/iter; left time: 4595.5526s
+	iters: 500, epoch: 4 | loss: 0.6440420
+	speed: 0.1612s/iter; left time: 4450.2044s
+	iters: 600, epoch: 4 | loss: 0.3710790
+	speed: 0.1683s/iter; left time: 4628.2239s
+	iters: 700, epoch: 4 | loss: 0.3248895
+	speed: 0.1568s/iter; left time: 4297.7977s
+	iters: 800, epoch: 4 | loss: 0.3928469
+	speed: 0.1606s/iter; left time: 4384.1778s
+	iters: 900, epoch: 4 | loss: 0.3214118
+	speed: 0.1372s/iter; left time: 3732.1379s
+	iters: 1000, epoch: 4 | loss: 0.4180063
+	speed: 0.1423s/iter; left time: 3857.2730s
+	iters: 1100, epoch: 4 | loss: 0.4363733
+	speed: 0.1491s/iter; left time: 4027.6170s
+	iters: 1200, epoch: 4 | loss: 0.3575479
+	speed: 0.1431s/iter; left time: 3851.2634s
+	iters: 1300, epoch: 4 | loss: 0.3812599
+	speed: 0.1351s/iter; left time: 3620.5947s
+	iters: 1400, epoch: 4 | loss: 0.4373589
+	speed: 0.1394s/iter; left time: 3723.4708s
+	iters: 1500, epoch: 4 | loss: 0.4600936
+	speed: 0.1422s/iter; left time: 3784.1711s
+	iters: 1600, epoch: 4 | loss: 0.3658520
+	speed: 0.1324s/iter; left time: 3508.8099s
+	iters: 1700, epoch: 4 | loss: 0.3235910
+	speed: 0.1383s/iter; left time: 3652.1234s
+	iters: 1800, epoch: 4 | loss: 0.3739525
+	speed: 0.1536s/iter; left time: 4041.0684s
+	iters: 1900, epoch: 4 | loss: 0.3460284
+	speed: 0.1565s/iter; left time: 4100.4079s
+	iters: 2000, epoch: 4 | loss: 0.4349496
+	speed: 0.1639s/iter; left time: 4277.9055s
+	iters: 2100, epoch: 4 | loss: 0.3725307
+	speed: 0.1550s/iter; left time: 4031.3514s
+	iters: 2200, epoch: 4 | loss: 0.2823872
+	speed: 0.1627s/iter; left time: 4215.9495s
+	iters: 2300, epoch: 4 | loss: 0.3347777
+	speed: 0.1591s/iter; left time: 4105.3340s
+Epoch: 4 cost time: 359.50718665122986
+
+
+Epoch: 4 | Train Loss: 0.3903754 Vali Loss: 0.7103991 Test Loss: 0.3820626 MAE Loss: 0.4098610
+Updating learning rate to 5.000000000000003e-07
+
+1it [00:01,  1.03s/it]
+	iters: 100, epoch: 5 | loss: 0.4627972
+	speed: 1.6767s/iter; left time: 43029.3579s
+	iters: 200, epoch: 5 | loss: 0.3180951
+	speed: 0.1725s/iter; left time: 4409.9865s
+	iters: 300, epoch: 5 | loss: 0.5058482
+	speed: 0.1580s/iter; left time: 4022.4885s
+	iters: 400, epoch: 5 | loss: 0.4069240
+	speed: 0.1642s/iter; left time: 4164.7380s
+	iters: 500, epoch: 5 | loss: 0.2701946
+	speed: 0.1563s/iter; left time: 3948.7082s
+	iters: 600, epoch: 5 | loss: 0.2959632
+	speed: 0.1677s/iter; left time: 4218.8022s
+	iters: 700, epoch: 5 | loss: 0.4890471
+	speed: 0.1430s/iter; left time: 3585.1755s
+	iters: 800, epoch: 5 | loss: 0.3823720
+	speed: 0.1309s/iter; left time: 3266.4887s
+	iters: 900, epoch: 5 | loss: 0.4878706
+	speed: 0.1447s/iter; left time: 3597.9845s
+	iters: 1000, epoch: 5 | loss: 0.3348491
+	speed: 0.1435s/iter; left time: 3554.5928s
+	iters: 1100, epoch: 5 | loss: 0.4344925
+	speed: 0.1339s/iter; left time: 3302.1187s
+	iters: 1200, epoch: 5 | loss: 0.3449389
+	speed: 0.1403s/iter; left time: 3447.1703s
+	iters: 1300, epoch: 5 | loss: 0.2901984
+	speed: 0.1408s/iter; left time: 3444.5971s
+	iters: 1400, epoch: 5 | loss: 0.3917715
+	speed: 0.1337s/iter; left time: 3256.7432s
+	iters: 1500, epoch: 5 | loss: 0.5493391
+	speed: 0.1392s/iter; left time: 3376.9441s
+	iters: 1600, epoch: 5 | loss: 0.2983552
+	speed: 0.1445s/iter; left time: 3490.3589s
+	iters: 1700, epoch: 5 | loss: 0.2918408
+	speed: 0.1596s/iter; left time: 3840.9142s
+	iters: 1800, epoch: 5 | loss: 0.4057478
+	speed: 0.1671s/iter; left time: 4003.2024s
+	iters: 1900, epoch: 5 | loss: 0.2130868
+	speed: 0.1553s/iter; left time: 3706.5009s
+	iters: 2000, epoch: 5 | loss: 0.2645288
+	speed: 0.1694s/iter; left time: 4025.5324s
+	iters: 2100, epoch: 5 | loss: 0.3645203
+	speed: 0.1692s/iter; left time: 4003.0883s
+	iters: 2200, epoch: 5 | loss: 0.3889724
+	speed: 0.1617s/iter; left time: 3809.8739s
+	iters: 2300, epoch: 5 | loss: 0.5410633
+	speed: 0.1638s/iter; left time: 3843.2134s
+Epoch: 5 cost time: 360.33302426338196
+
+
+Epoch: 5 | Train Loss: 0.3883159 Vali Loss: 0.7125213 Test Loss: 0.3795868 MAE Loss: 0.4078811
+EarlyStopping counter: 1 out of 10
+Updating learning rate to 2.5000000000000015e-07
+
+1it [00:01,  1.03s/it]
+	iters: 100, epoch: 6 | loss: 0.6507421
+	speed: 1.6489s/iter; left time: 38453.0243s
+	iters: 200, epoch: 6 | loss: 0.2442400
+	speed: 0.1633s/iter; left time: 3791.0961s
+	iters: 300, epoch: 6 | loss: 0.4031434
+	speed: 0.1579s/iter; left time: 3651.7493s
+	iters: 400, epoch: 6 | loss: 0.4442154
+	speed: 0.1648s/iter; left time: 3794.5023s
+	iters: 500, epoch: 6 | loss: 0.4338387
+	speed: 0.1494s/iter; left time: 3424.4640s
+	iters: 600, epoch: 6 | loss: 0.2536168
+	speed: 0.1396s/iter; left time: 3186.1383s
+	iters: 700, epoch: 6 | loss: 0.4000613
+	speed: 0.1428s/iter; left time: 3245.6633s
+	iters: 800, epoch: 6 | loss: 0.3788061
+	speed: 0.1324s/iter; left time: 2995.3839s
+	iters: 900, epoch: 6 | loss: 0.3322072
+	speed: 0.1440s/iter; left time: 3243.1577s
+	iters: 1000, epoch: 6 | loss: 0.2821611
+	speed: 0.1384s/iter; left time: 3102.7560s
+	iters: 1100, epoch: 6 | loss: 0.3264508
+	speed: 0.1319s/iter; left time: 2944.5150s
+	iters: 1200, epoch: 6 | loss: 0.2767282
+	speed: 0.1410s/iter; left time: 3133.4979s
+	iters: 1300, epoch: 6 | loss: 0.2896551
+	speed: 0.1437s/iter; left time: 3179.4683s
+	iters: 1400, epoch: 6 | loss: 0.3497430
+	speed: 0.1399s/iter; left time: 3081.5191s
+	iters: 1500, epoch: 6 | loss: 0.3723592
+	speed: 0.1568s/iter; left time: 3436.2456s
+	iters: 1600, epoch: 6 | loss: 0.2586421
+	speed: 0.1597s/iter; left time: 3484.8792s
+	iters: 1700, epoch: 6 | loss: 0.3948731
+	speed: 0.1606s/iter; left time: 3488.2709s
+	iters: 1800, epoch: 6 | loss: 0.5403490
+	speed: 0.1669s/iter; left time: 3608.7812s
+	iters: 1900, epoch: 6 | loss: 0.3157363
+	speed: 0.1614s/iter; left time: 3474.1258s
+	iters: 2000, epoch: 6 | loss: 0.3421814
+	speed: 0.1614s/iter; left time: 3457.2505s
+	iters: 2100, epoch: 6 | loss: 0.2791554
+	speed: 0.1595s/iter; left time: 3400.0110s
+	iters: 2200, epoch: 6 | loss: 0.3512210
+	speed: 0.1693s/iter; left time: 3592.1591s
+	iters: 2300, epoch: 6 | loss: 0.3143860
+	speed: 0.1586s/iter; left time: 3350.5361s
+Epoch: 6 cost time: 358.0404944419861
+
+
+Epoch: 6 | Train Loss: 0.3867708 Vali Loss: 0.7122385 Test Loss: 0.3810056 MAE Loss: 0.4094648
+EarlyStopping counter: 2 out of 10
+Updating learning rate to 1.2500000000000007e-07
+
+	iters: 100, epoch: 7 | loss: 0.2514527
+	speed: 1.6598s/iter; left time: 34820.5076s
+	iters: 200, epoch: 7 | loss: 0.3602792
+	speed: 0.1570s/iter; left time: 3279.0107s
+	iters: 300, epoch: 7 | loss: 0.4553494
+	speed: 0.1676s/iter; left time: 3483.0340s
+	iters: 400, epoch: 7 | loss: 0.3473497
+	speed: 0.1424s/iter; left time: 2945.2014s
+	iters: 500, epoch: 7 | loss: 0.5618331
+	speed: 0.1387s/iter; left time: 2853.3746s
+	iters: 600, epoch: 7 | loss: 0.3420252
+	speed: 0.1390s/iter; left time: 2847.2741s
+	iters: 700, epoch: 7 | loss: 0.2981889
+	speed: 0.1322s/iter; left time: 2693.1797s
+	iters: 800, epoch: 7 | loss: 0.2947552
+	speed: 0.1400s/iter; left time: 2838.8209s
+	iters: 900, epoch: 7 | loss: 0.3854496
+	speed: 0.1422s/iter; left time: 2868.6341s
+	iters: 1000, epoch: 7 | loss: 0.6284375
+	speed: 0.1331s/iter; left time: 2672.8167s
+	iters: 1100, epoch: 7 | loss: 0.4333023
+	speed: 0.1422s/iter; left time: 2840.0437s
+	iters: 1200, epoch: 7 | loss: 0.4788979
+	speed: 0.1428s/iter; left time: 2839.0323s
+	iters: 1300, epoch: 7 | loss: 0.4073537
+	speed: 0.1500s/iter; left time: 2967.2999s
+	iters: 1400, epoch: 7 | loss: 0.3401171
+	speed: 0.1660s/iter; left time: 3265.8176s
+	iters: 1500, epoch: 7 | loss: 0.4394747
+	speed: 0.1557s/iter; left time: 3049.0677s
+	iters: 1600, epoch: 7 | loss: 0.3630226
+	speed: 0.1634s/iter; left time: 3183.1155s
+	iters: 1700, epoch: 7 | loss: 0.3938603
+	speed: 0.1648s/iter; left time: 3193.3757s
+	iters: 1800, epoch: 7 | loss: 0.5444327
+	speed: 0.1604s/iter; left time: 3092.0789s
+	iters: 1900, epoch: 7 | loss: 0.5140613
+	speed: 0.1589s/iter; left time: 3046.8806s
+	iters: 2000, epoch: 7 | loss: 0.3041425
+	speed: 0.1570s/iter; left time: 2994.4555s
+	iters: 2100, epoch: 7 | loss: 0.3237838
+	speed: 0.1662s/iter; left time: 3154.4087s
+	iters: 2200, epoch: 7 | loss: 0.2660409
+	speed: 0.1577s/iter; left time: 2978.0674s
+	iters: 2300, epoch: 7 | loss: 0.2699974
+	speed: 0.1650s/iter; left time: 3099.4471s
+Epoch: 7 cost time: 358.4226396083832
+
+
+Epoch: 7 | Train Loss: 0.3865458 Vali Loss: 0.7106165 Test Loss: 0.3795944 MAE Loss: 0.4081205
+EarlyStopping counter: 3 out of 10
+Updating learning rate to 6.250000000000004e-08
+
+	iters: 100, epoch: 8 | loss: 0.4180848
+	speed: 1.6428s/iter; left time: 30616.8337s
+	iters: 200, epoch: 8 | loss: 0.4110498
+	speed: 0.1481s/iter; left time: 2744.6376s
+	iters: 300, epoch: 8 | loss: 0.3530998
+	speed: 0.1471s/iter; left time: 2711.3135s
+	iters: 400, epoch: 8 | loss: 0.6382647
+	speed: 0.1355s/iter; left time: 2483.9815s
+	iters: 500, epoch: 8 | loss: 0.5228713
+	speed: 0.1420s/iter; left time: 2589.5079s
+	iters: 600, epoch: 8 | loss: 0.5912179
+	speed: 0.1420s/iter; left time: 2574.6655s
+	iters: 700, epoch: 8 | loss: 0.3580996
+	speed: 0.1330s/iter; left time: 2398.9596s
+	iters: 800, epoch: 8 | loss: 0.2617767
+	speed: 0.1393s/iter; left time: 2498.6223s
+	iters: 900, epoch: 8 | loss: 0.3325102
+	speed: 0.1450s/iter; left time: 2585.8772s
+	iters: 1000, epoch: 8 | loss: 0.2700668
+	speed: 0.1362s/iter; left time: 2416.0771s
+	iters: 1100, epoch: 8 | loss: 0.5146757
+	speed: 0.1492s/iter; left time: 2632.0991s
+	iters: 1200, epoch: 8 | loss: 0.3286084
+	speed: 0.1673s/iter; left time: 2934.7267s
+	iters: 1300, epoch: 8 | loss: 0.3122534
+	speed: 0.1592s/iter; left time: 2776.6678s
+	iters: 1400, epoch: 8 | loss: 0.2640904
+	speed: 0.1642s/iter; left time: 2847.3999s
+	iters: 1500, epoch: 8 | loss: 0.2863015
+	speed: 0.1581s/iter; left time: 2725.5341s
+	iters: 1600, epoch: 8 | loss: 0.4623732
+	speed: 0.1669s/iter; left time: 2860.2247s
+	iters: 1700, epoch: 8 | loss: 0.4270039
+	speed: 0.1591s/iter; left time: 2711.0126s
+	iters: 1800, epoch: 8 | loss: 0.3123582
+	speed: 0.1645s/iter; left time: 2785.6453s
+	iters: 1900, epoch: 8 | loss: 0.4681701
+	speed: 0.1571s/iter; left time: 2644.5875s
+	iters: 2000, epoch: 8 | loss: 0.2524982
+	speed: 0.1644s/iter; left time: 2751.6395s
+	iters: 2100, epoch: 8 | loss: 0.4268400
+	speed: 0.1579s/iter; left time: 2626.1548s
+	iters: 2200, epoch: 8 | loss: 0.3461068
+	speed: 0.1657s/iter; left time: 2740.3691s
+	iters: 2300, epoch: 8 | loss: 0.4011638
+	speed: 0.1664s/iter; left time: 2735.6994s
+Epoch: 8 cost time: 360.32799220085144
+
+
+Epoch: 8 | Train Loss: 0.3859846 Vali Loss: 0.7109594 Test Loss: 0.3798391 MAE Loss: 0.4084394
+EarlyStopping counter: 4 out of 10
+Updating learning rate to 3.125000000000002e-08
+
+1it [00:01,  1.02s/it]
+	iters: 100, epoch: 9 | loss: 0.3996069
+	speed: 1.6162s/iter; left time: 26336.4817s
+	iters: 200, epoch: 9 | loss: 0.2484792
+	speed: 0.1434s/iter; left time: 2322.7358s
+	iters: 300, epoch: 9 | loss: 0.5641225
+	speed: 0.1382s/iter; left time: 2223.5788s
+	iters: 400, epoch: 9 | loss: 0.4014491
+	speed: 0.1422s/iter; left time: 2275.2869s
+	iters: 500, epoch: 9 | loss: 0.2918067
+	speed: 0.1388s/iter; left time: 2206.8121s
+	iters: 600, epoch: 9 | loss: 0.3906463
+	speed: 0.1345s/iter; left time: 2124.7728s
+	iters: 700, epoch: 9 | loss: 0.3044359
+	speed: 0.1392s/iter; left time: 2184.2120s
+	iters: 800, epoch: 9 | loss: 0.3705791
+	speed: 0.1414s/iter; left time: 2204.9302s
+	iters: 900, epoch: 9 | loss: 0.5395014
+	speed: 0.1352s/iter; left time: 2095.0547s
+	iters: 1000, epoch: 9 | loss: 0.4187996
+	speed: 0.1576s/iter; left time: 2426.3189s
+	iters: 1100, epoch: 9 | loss: 0.3784197
+	speed: 0.1617s/iter; left time: 2472.6574s
+	iters: 1200, epoch: 9 | loss: 0.2810535
+	speed: 0.1669s/iter; left time: 2536.0976s
+	iters: 1300, epoch: 9 | loss: 0.3310893
+	speed: 0.1703s/iter; left time: 2570.2031s
+	iters: 1400, epoch: 9 | loss: 0.5092390
+	speed: 0.1579s/iter; left time: 2367.6247s
+	iters: 1500, epoch: 9 | loss: 0.3386422
+	speed: 0.1700s/iter; left time: 2532.2978s
+	iters: 1600, epoch: 9 | loss: 0.6478159
+	speed: 0.1565s/iter; left time: 2314.8355s
+	iters: 1700, epoch: 9 | loss: 0.3218516
+	speed: 0.1667s/iter; left time: 2449.1540s
+	iters: 1800, epoch: 9 | loss: 0.4041129
+	speed: 0.1585s/iter; left time: 2313.4351s
+	iters: 1900, epoch: 9 | loss: 0.4522361
+	speed: 0.1668s/iter; left time: 2417.9820s
+	iters: 2000, epoch: 9 | loss: 0.3852755
+	speed: 0.1549s/iter; left time: 2229.7484s
+	iters: 2100, epoch: 9 | loss: 0.4787697
+	speed: 0.1665s/iter; left time: 2379.8056s
+	iters: 2200, epoch: 9 | loss: 0.4538082
+	speed: 0.1660s/iter; left time: 2356.3701s
+	iters: 2300, epoch: 9 | loss: 0.4982225
+	speed: 0.1604s/iter; left time: 2261.3484s
+Epoch: 9 cost time: 360.8559811115265
+
+
+Epoch: 9 | Train Loss: 0.3857290 Vali Loss: 0.7112757 Test Loss: 0.3795505 MAE Loss: 0.4082166
+EarlyStopping counter: 5 out of 10
+Updating learning rate to 1.562500000000001e-08
+
+	iters: 100, epoch: 10 | loss: 0.2382134
+	speed: 1.5833s/iter; left time: 22091.3341s
+	iters: 200, epoch: 10 | loss: 0.5901354
+	speed: 0.1400s/iter; left time: 1939.1707s
+	iters: 300, epoch: 10 | loss: 0.3178916
+	speed: 0.1386s/iter; left time: 1906.4102s
+	iters: 400, epoch: 10 | loss: 0.3257241
+	speed: 0.1410s/iter; left time: 1924.7449s
+	iters: 500, epoch: 10 | loss: 0.4043127
+	speed: 0.1430s/iter; left time: 1938.1544s
+	iters: 600, epoch: 10 | loss: 0.3692512
+	speed: 0.1322s/iter; left time: 1778.8816s
+	iters: 700, epoch: 10 | loss: 0.3299654
+	speed: 0.1430s/iter; left time: 1909.7583s
+	iters: 800, epoch: 10 | loss: 0.4781641
+	speed: 0.1427s/iter; left time: 1890.6549s
+	iters: 900, epoch: 10 | loss: 0.4847133
+	speed: 0.1581s/iter; left time: 2079.7695s
+	iters: 1000, epoch: 10 | loss: 0.3897895
+	speed: 0.1666s/iter; left time: 2174.9601s
+	iters: 1100, epoch: 10 | loss: 0.4790674
+	speed: 0.1602s/iter; left time: 2074.4492s
+	iters: 1200, epoch: 10 | loss: 0.4290995
+	speed: 0.1680s/iter; left time: 2158.8229s
+	iters: 1300, epoch: 10 | loss: 0.5836254
+	speed: 0.1689s/iter; left time: 2153.6704s
+	iters: 1400, epoch: 10 | loss: 0.3041890
+	speed: 0.1620s/iter; left time: 2049.7834s
+	iters: 1500, epoch: 10 | loss: 0.2708476
+	speed: 0.1659s/iter; left time: 2082.6798s
+	iters: 1600, epoch: 10 | loss: 0.3154392
+	speed: 0.1594s/iter; left time: 1985.2986s
+	iters: 1700, epoch: 10 | loss: 0.4138901
+	speed: 0.1686s/iter; left time: 2083.0545s
+	iters: 1800, epoch: 10 | loss: 0.3821258
+	speed: 0.1575s/iter; left time: 1929.7217s
+	iters: 1900, epoch: 10 | loss: 0.3065337
+	speed: 0.1658s/iter; left time: 2014.7771s
+	iters: 2000, epoch: 10 | loss: 0.5245942
+	speed: 0.1567s/iter; left time: 1888.5965s
+	iters: 2100, epoch: 10 | loss: 0.2748212
+	speed: 0.1649s/iter; left time: 1971.6449s
+	iters: 2200, epoch: 10 | loss: 0.3643576
+	speed: 0.1649s/iter; left time: 1954.7609s
+	iters: 2300, epoch: 10 | loss: 0.4066911
+	speed: 0.1624s/iter; left time: 1908.2547s
+Epoch: 10 cost time: 364.6473593711853
+
+
+Epoch: 10 | Train Loss: 0.3860263 Vali Loss: 0.7112005 Test Loss: 0.3795649 MAE Loss: 0.4082370
+EarlyStopping counter: 6 out of 10
+Updating learning rate to 7.812500000000005e-09
+
+	iters: 100, epoch: 11 | loss: 0.5981688
+	speed: 1.5670s/iter; left time: 18194.9198s
+	iters: 200, epoch: 11 | loss: 0.4700392
+	speed: 0.1435s/iter; left time: 1651.7811s
+	iters: 300, epoch: 11 | loss: 0.3508079
+	speed: 0.1461s/iter; left time: 1667.1238s
+	iters: 400, epoch: 11 | loss: 0.3096289
+	speed: 0.1463s/iter; left time: 1654.9381s
+	iters: 500, epoch: 11 | loss: 0.3235829
+	speed: 0.1427s/iter; left time: 1599.4371s
+	iters: 600, epoch: 11 | loss: 0.4051861
+	speed: 0.1387s/iter; left time: 1541.4937s
+	iters: 700, epoch: 11 | loss: 0.4430378
+	speed: 0.1459s/iter; left time: 1606.8569s
+	iters: 800, epoch: 11 | loss: 0.4231315
+	speed: 0.1672s/iter; left time: 1824.2109s
+	iters: 900, epoch: 11 | loss: 0.4424334
+	speed: 0.1611s/iter; left time: 1741.4268s
+	iters: 1000, epoch: 11 | loss: 0.4269120
+	speed: 0.1713s/iter; left time: 1835.0569s
+	iters: 1100, epoch: 11 | loss: 0.3344738
+	speed: 0.1702s/iter; left time: 1805.5082s
+	iters: 1200, epoch: 11 | loss: 0.2961593
+	speed: 0.1647s/iter; left time: 1730.9526s
+	iters: 1300, epoch: 11 | loss: 0.3908115
+	speed: 0.1671s/iter; left time: 1739.7866s
+	iters: 1400, epoch: 11 | loss: 0.4393510
+	speed: 0.1707s/iter; left time: 1760.5586s
+	iters: 1500, epoch: 11 | loss: 0.4255500
+	speed: 0.1659s/iter; left time: 1694.4010s
+	iters: 1600, epoch: 11 | loss: 0.3443052
+	speed: 0.1637s/iter; left time: 1654.9541s
+	iters: 1700, epoch: 11 | loss: 0.3304726
+	speed: 0.1669s/iter; left time: 1670.8590s
+	iters: 1800, epoch: 11 | loss: 0.4394471
+	speed: 0.1712s/iter; left time: 1697.1099s
+	iters: 1900, epoch: 11 | loss: 0.2564733
+	speed: 0.1647s/iter; left time: 1616.3477s
+	iters: 2000, epoch: 11 | loss: 0.2437365
+	speed: 0.1702s/iter; left time: 1652.6830s
+	iters: 2100, epoch: 11 | loss: 0.3000891
+	speed: 0.1640s/iter; left time: 1576.5301s
+	iters: 2200, epoch: 11 | loss: 0.3427305
+	speed: 0.1623s/iter; left time: 1543.5438s
+	iters: 2300, epoch: 11 | loss: 0.3105290
+	speed: 0.1683s/iter; left time: 1583.4504s
+Epoch: 11 cost time: 375.1739478111267
+
+
+Epoch: 11 | Train Loss: 0.3855883 Vali Loss: 0.7112171 Test Loss: 0.3796300 MAE Loss: 0.4082884
+EarlyStopping counter: 7 out of 10
+Updating learning rate to 3.906250000000002e-09
+
+	iters: 100, epoch: 12 | loss: 0.3275561
+	speed: 1.5608s/iter; left time: 14467.1155s
+	iters: 200, epoch: 12 | loss: 0.3736528
+	speed: 0.1389s/iter; left time: 1273.4287s
+	iters: 300, epoch: 12 | loss: 0.4886738
+	speed: 0.1436s/iter; left time: 1302.4469s
+	iters: 400, epoch: 12 | loss: 0.4962818
+	speed: 0.1406s/iter; left time: 1260.9189s
+	iters: 500, epoch: 12 | loss: 0.2637705
+	speed: 0.1348s/iter; left time: 1195.4914s
+	iters: 600, epoch: 12 | loss: 0.2384146
+	speed: 0.1462s/iter; left time: 1282.1751s
+	iters: 700, epoch: 12 | loss: 0.3727522
+	speed: 0.1497s/iter; left time: 1297.5328s
+	iters: 800, epoch: 12 | loss: 0.4069296
+	speed: 0.1680s/iter; left time: 1439.2794s
+	iters: 900, epoch: 12 | loss: 0.5231493
+	speed: 0.1591s/iter; left time: 1347.7916s
+	iters: 1000, epoch: 12 | loss: 0.3377162
+	speed: 0.1701s/iter; left time: 1423.3724s
+	iters: 1100, epoch: 12 | loss: 0.5650176
+	speed: 0.1667s/iter; left time: 1378.7285s
+	iters: 1200, epoch: 12 | loss: 0.3794917
+	speed: 0.1647s/iter; left time: 1345.3604s
+	iters: 1300, epoch: 12 | loss: 0.2642098
+	speed: 0.1685s/iter; left time: 1359.2718s
+	iters: 1400, epoch: 12 | loss: 0.4923214
+	speed: 0.1679s/iter; left time: 1337.9132s
+	iters: 1500, epoch: 12 | loss: 0.3006663
+	speed: 0.1650s/iter; left time: 1298.2675s
+	iters: 1600, epoch: 12 | loss: 0.3082128
+	speed: 0.1667s/iter; left time: 1295.1625s
+	iters: 1700, epoch: 12 | loss: 0.3594346
+	speed: 0.1643s/iter; left time: 1259.7100s
+	iters: 1800, epoch: 12 | loss: 0.4399591
+	speed: 0.1607s/iter; left time: 1216.6634s
+	iters: 1900, epoch: 12 | loss: 0.3375383
+	speed: 0.1695s/iter; left time: 1266.3596s
+	iters: 2000, epoch: 12 | loss: 0.4575225
+	speed: 0.1705s/iter; left time: 1256.4708s
+	iters: 2100, epoch: 12 | loss: 0.4199037
+	speed: 0.1636s/iter; left time: 1189.5667s
+	iters: 2200, epoch: 12 | loss: 0.4871178
+	speed: 0.1689s/iter; left time: 1210.8056s
+	iters: 2300, epoch: 12 | loss: 0.4190640
+	speed: 0.1685s/iter; left time: 1190.9972s
+Epoch: 12 cost time: 373.2107515335083
+
+
+Epoch: 12 | Train Loss: 0.3853687 Vali Loss: 0.7115169 Test Loss: 0.3796233 MAE Loss: 0.4082875
+EarlyStopping counter: 8 out of 10
+Updating learning rate to 1.953125000000001e-09
+
+	iters: 100, epoch: 13 | loss: 0.3161271
+	speed: 1.5755s/iter; left time: 10913.8185s
+	iters: 200, epoch: 13 | loss: 0.4012933
+	speed: 0.1354s/iter; left time: 924.3639s
+	iters: 300, epoch: 13 | loss: 0.4972647
+	speed: 0.1431s/iter; left time: 962.9665s
+	iters: 400, epoch: 13 | loss: 0.3064249
+	speed: 0.1452s/iter; left time: 962.1267s
+	iters: 500, epoch: 13 | loss: 0.3889888
+	speed: 0.1460s/iter; left time: 953.0619s
+	iters: 600, epoch: 13 | loss: 0.2590967
+	speed: 0.1363s/iter; left time: 875.9101s
+	iters: 700, epoch: 13 | loss: 0.2568817
+	speed: 0.1455s/iter; left time: 920.2749s
+	iters: 800, epoch: 13 | loss: 0.3749184
+	speed: 0.1702s/iter; left time: 1059.8151s
+	iters: 900, epoch: 13 | loss: 0.2872975
+	speed: 0.1611s/iter; left time: 986.7609s
+	iters: 1000, epoch: 13 | loss: 0.5470949
+	speed: 0.1699s/iter; left time: 1023.8147s
+	iters: 1100, epoch: 13 | loss: 0.6366348
+	speed: 0.1694s/iter; left time: 1003.7704s
+	iters: 1200, epoch: 13 | loss: 0.3309686
+	speed: 0.1594s/iter; left time: 928.5625s
+	iters: 1300, epoch: 13 | loss: 0.3816704
+	speed: 0.1642s/iter; left time: 940.2328s
+	iters: 1400, epoch: 13 | loss: 0.3531764
+	speed: 0.1661s/iter; left time: 934.7966s
+	iters: 1500, epoch: 13 | loss: 0.4851583
+	speed: 0.1624s/iter; left time: 897.3534s
+	iters: 1600, epoch: 13 | loss: 0.3414964
+	speed: 0.1683s/iter; left time: 913.5564s
+	iters: 1700, epoch: 13 | loss: 0.3003650
+	speed: 0.1613s/iter; left time: 859.2982s
+	iters: 1800, epoch: 13 | loss: 0.4109019
+	speed: 0.1663s/iter; left time: 869.4036s
+	iters: 1900, epoch: 13 | loss: 0.2818069
+	speed: 0.1702s/iter; left time: 872.6336s
+	iters: 2000, epoch: 13 | loss: 0.3733802
+	speed: 0.1726s/iter; left time: 867.5771s
+	iters: 2100, epoch: 13 | loss: 0.4015109
+	speed: 0.1650s/iter; left time: 813.1702s
+	iters: 2200, epoch: 13 | loss: 0.3895934
+	speed: 0.1709s/iter; left time: 824.9108s
+	iters: 2300, epoch: 13 | loss: 0.5003771
+	speed: 0.1611s/iter; left time: 761.7522s
+Epoch: 13 cost time: 373.68942952156067
+
+
+Epoch: 13 | Train Loss: 0.3859073 Vali Loss: 0.7109139 Test Loss: 0.3796402 MAE Loss: 0.4083047
+EarlyStopping counter: 9 out of 10
+Updating learning rate to 9.765625000000006e-10
+
+1it [00:01,  1.03s/it]
+	iters: 100, epoch: 14 | loss: 0.3485082
+	speed: 1.5745s/iter; left time: 7219.2969s
+	iters: 200, epoch: 14 | loss: 0.4476908
+	speed: 0.1363s/iter; left time: 611.2484s
+	iters: 300, epoch: 14 | loss: 0.3852441
+	speed: 0.1385s/iter; left time: 607.4949s
+	iters: 400, epoch: 14 | loss: 0.3150208
+	speed: 0.1404s/iter; left time: 601.6447s
+	iters: 500, epoch: 14 | loss: 0.3567986
+	speed: 0.1395s/iter; left time: 583.9138s
+	iters: 600, epoch: 14 | loss: 0.3514259
+	speed: 0.1453s/iter; left time: 593.6363s
+	iters: 700, epoch: 14 | loss: 0.3394072
+	speed: 0.1420s/iter; left time: 566.0249s
+	iters: 800, epoch: 14 | loss: 0.4148859
+	speed: 0.1270s/iter; left time: 493.3038s
+	iters: 900, epoch: 14 | loss: 0.4364680
+	speed: 0.1277s/iter; left time: 483.4230s
+	iters: 1000, epoch: 14 | loss: 0.4284486
+	speed: 0.1290s/iter; left time: 475.2354s
+	iters: 1100, epoch: 14 | loss: 0.6491712
+	speed: 0.1229s/iter; left time: 440.5866s
+	iters: 1200, epoch: 14 | loss: 0.3706653
+	speed: 0.1259s/iter; left time: 438.7916s
+	iters: 1300, epoch: 14 | loss: 0.3394437
+	speed: 0.1268s/iter; left time: 429.2846s
+	iters: 1400, epoch: 14 | loss: 0.3921201
+	speed: 0.1272s/iter; left time: 417.8030s
+	iters: 1500, epoch: 14 | loss: 0.4843811
+	speed: 0.1229s/iter; left time: 391.3388s
+	iters: 1600, epoch: 14 | loss: 0.4118557
+	speed: 0.1270s/iter; left time: 391.7785s
+	iters: 1700, epoch: 14 | loss: 0.3366422
+	speed: 0.1268s/iter; left time: 378.5543s
+	iters: 1800, epoch: 14 | loss: 0.6325414
+	speed: 0.1246s/iter; left time: 359.3431s
+	iters: 1900, epoch: 14 | loss: 0.5149593
+	speed: 0.1204s/iter; left time: 335.3580s
+	iters: 2000, epoch: 14 | loss: 0.3517608
+	speed: 0.1257s/iter; left time: 337.5236s
+	iters: 2100, epoch: 14 | loss: 0.4014268
+	speed: 0.1293s/iter; left time: 334.3460s
+	iters: 2200, epoch: 14 | loss: 0.2545481
+	speed: 0.1287s/iter; left time: 319.7261s
+	iters: 2300, epoch: 14 | loss: 0.3895955
+	speed: 0.1226s/iter; left time: 292.4656s
+Epoch: 14 cost time: 306.3472397327423
+
+
+Epoch: 14 | Train Loss: 0.3858915 Vali Loss: 0.7115052 Test Loss: 0.3796482 MAE Loss: 0.4083105
+EarlyStopping counter: 10 out of 10
+Early stopping
+Traceback (most recent call last):
+  File "/home/dmx_MT/LZF/project/CAST/run_main.py", line 403, in <module>
+    del_files(path)  # delete checkpoint files
+    ^^^^^^^^^^^^^^^
+  File "/home/dmx_MT/LZF/project/CAST/layers/../utils/tools.py", line 134, in del_files
+    shutil.rmtree(dir_path)
+  File "/home/dmx_MT/.conda/envs/timellm/lib/python3.11/shutil.py", line 742, in rmtree
+    onerror(os.lstat, path, sys.exc_info())
+  File "/home/dmx_MT/.conda/envs/timellm/lib/python3.11/shutil.py", line 740, in rmtree
+    orig_st = os.lstat(path, dir_fd=dir_fd)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: './checkpoints'
